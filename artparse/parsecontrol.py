@@ -32,13 +32,13 @@ def pdf2plaintext(pdf, headers_footers, column_info):
 
         # layout two columns into one
         if column_info[page_number] != 0:
-            print(f"Processing two-column page {page_number} into one.")
+            #print(f"Processing two-column page {page_number} into one.")
             single_column_lines = []
             for row in page_as_lines:
-                print(f"LEFT:---{row[:column_info[page_number]].strip()}---")
+                #print(f"LEFT:---{row[:column_info[page_number]].strip()}---")
                 single_column_lines.append(row[:column_info[page_number]])
             for row in page_as_lines:
-                print(f"RIGHT:---{row[column_info[page_number]:].strip()}---")
+                #print(f"RIGHT:---{row[column_info[page_number]:].strip()}---")
                 single_column_lines.append(row[column_info[page_number]:])
             text_pages.append("\n".join(single_column_lines))
         else:
@@ -58,33 +58,33 @@ def extract(filename):
         print("{}: {}".format(index, value))
 
     pdf_text = pdf2plaintext(pdf, header_footer_info, column_info)
-    #print(pdf_text)
+
     with open("temptext.txt", "w") as outfile:
         outfile.write(pdf_text)
 
-    # Find start position of any word reference that starts a line (should return only one match)
+    # Find start position of any word "reference" that starts a line (should return only one match)
     potential_reference_starts = [r.start(0) for r in re.finditer(r"\n\s*references", pdf_text, re.IGNORECASE)]
     print("Found {} lines that could be the title of reference section.".format(len(potential_reference_starts)))
 
     if len(potential_reference_starts) == 1:
         reference_section = pdf_text[potential_reference_starts[0]:]
 
-    # Find text start position where there is line change and whitespace before capital letter (how about von Neumann and de Welt?)
-    reference_starts = [r.start(0) for r in re.finditer(r"\n\s+([A-Z].*\([12]\d\d\d\).*\.[\s\S]+?(?=\.))", reference_section)]
+    reference_matcher = inspect.detect_reference_style(reference_section.lstrip())
+    print(reference_matcher)
 
+    reference_starts = [r.start(0) for r in re.finditer(reference_matcher, reference_section)]
+    #reference_starts = [r.start(0) for r in re.finditer(r"\n\s+([A-Z].*\([12]\d\d\d\).*\.[\s\S]+?(?=\.))", reference_section)]
+
+    references = []
     slice_start = reference_starts[0] if len(reference_starts) > 0 else []
     for ref in reference_starts:
-        #print(reference_section[slice_start:ref])
+        ref_cleaned = re.sub(r"\s+", " ", reference_section[slice_start:ref].strip())
+        references.append(ref_cleaned)
         slice_start = ref
     
+    print("\n\n".join(references))
+
     #print(references)
     #references = re.findall(r"\n\s+([A-Z].*\([12]\d\d\d\).*\.[\s\S]+?(?=\.))", reference_section)
     #references = [re.sub(r"\s+", ' ', ref) for ref in references]
     #return references
-
-
-
-
-
-# Tämä löytää referenssin alusta vuosiluvun jälkeiseen toiseen pisteeseen, jos vuosiluvussa sulkeet
-# re.findall(r"\n\s+([A-Z].*\([12]\d\d\d\).*\.[\s\S]+?(?=\.))", teksti)

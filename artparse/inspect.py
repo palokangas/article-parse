@@ -88,3 +88,26 @@ def detect_header_footer(pdf_object):
                 line_to_investigate = "stop"
     
     return headers_and_footers
+
+
+def detect_reference_style(reference_text):
+
+    """
+        returns a regular expression object for matching from first author to year
+    """
+    reference_lines = reference_text.splitlines()
+    del reference_lines[0]   # delete the headline "references"
+
+    for line in reference_lines:
+        if line.isspace():
+            print("Ignoring empty line")
+        else:
+            match_year = re.search(r"\s*[A-ZÅÄÖØÆ].+([12][09]\d\d)\D", line)
+            print(match_year.string)
+            left_paren = line[match_year.regs[1][0] - 1]
+            right_paren = line[match_year.regs[1][1]]
+            if left_paren == '(' and right_paren == ')':
+                return re.compile(r"\n\s*([A-ZÅÄÖØÆ].+[12][09]\d\d\))")
+            else:
+                return re.compile(r"\n\s*([A-ZÅÄÖØÆ].+[12][09]\d\d)")
+
