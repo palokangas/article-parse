@@ -16,6 +16,4 @@ if __name__ == '__main__':
         sys.exit(1)
     else:
         results = main(sys.argv[1])
-        if len(results) > 0:
-            for result in results:
-                print(result)
+        print(results)
