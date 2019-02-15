@@ -1,6 +1,21 @@
-import re, pdftotext
+import sys,re
+import pdftotext
 from collections import defaultdict
 from difflib import SequenceMatcher
+
+
+def get_years_per_page(pdf):
+    """
+        Finds possible publication years (1800-2099) from pages
+        param: pdftotext.PDF object
+        returns: list of  
+    """
+    years_per_page = []
+    for page in pdf:
+        years_per_page.append(re.findall(r"[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;]"))
+
+    return years_per_page
+
 
 def detect_columns(pdf):
 
@@ -20,7 +35,7 @@ def detect_columns(pdf):
             rows += 1
             for position in re.finditer(r" ", row):
                 # exclude possible margins
-                if len(row) > 20 and position.start(0) > 19 and position.start(0) < len(row) - 19:
+                if len(row) > 40 and position.start(0) > 19 and position.start(0) < len(row) - 19:
                         spaces[position.start(0)] += 1
 
         #print(f"{max(spaces.values())} / {rows} = {max(spaces.values()) / rows}")
@@ -96,18 +111,44 @@ def detect_reference_style(reference_text):
         returns a regular expression object for matching from first author to year
     """
     reference_lines = reference_text.splitlines()
-    del reference_lines[0]   # delete the headline "references"
+    #reference_lines[0] = re.sub(r"(=?\n|\n.+)references", "", reference_lines[0], re.IGNORECASE)
+    #del reference_lines[0]   # delete the headline "references"
+    #print(f"The first line is now: {reference_lines[0]}")
 
     for line in reference_lines:
-        if line.isspace():
-            print("Ignoring empty line")
-        else:
-            match_year = re.search(r"\s*[A-ZÅÄÖØÆ].+([12][09]\d\d)\D", line)
+        try:
+            print("Trying to detect ref style based on this line:")
+            print(line)
+            match_year = re.search(r"\s*[A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;]", line)
             print(match_year.string)
+            print(match_year.groups())
             left_paren = line[match_year.regs[1][0] - 1]
             right_paren = line[match_year.regs[1][1]]
             if left_paren == '(' and right_paren == ')':
-                return re.compile(r"\n\s*([A-ZÅÄÖØÆ].+[12][09]\d\d\))")
+                return re.compile(r"\s*([A-ZÅÄÖØÆ].+\((?:19|20)\d\d\))")
             else:
-                return re.compile(r"\n\s*([A-ZÅÄÖØÆ].+[12][09]\d\d)")
+                return re.compile(r"\s*([A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;])")
+        except:
+            print("Ignoring a non-reference line")
+
+def detect_reference_start_index(pdftext):
+
+    potential_reference_starts = [r.start() for r in re.finditer(r"(?:\n|\n\s+|\n.*\s+)(references)", pdftext, re.IGNORECASE)]
+    if len(potential_reference_starts) == 0:
+        return 0
+    elif len(potential_reference_starts) == 1:
+        return potential_reference_starts[0]
+    else:
+        print("There were more than one probable reference section. Detecting the most probable one.")
+        most_probable_start_point = 0
+        most_year_mentions = 0
+        for test_start in potential_reference_starts:
+            test_text = pdftext[test_start:test_start+1000]
+            nr_year_mentions = len(re.findall(r"[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;]", test_text))
+            print(f"Position {test_start} is followed by {nr_year_mentions} year mentions.")
+            if nr_year_mentions > most_year_mentions:
+                most_probable_start_point = test_start
+                most_year_mentions = nr_year_mentions
+        return most_probable_start_point
+
 

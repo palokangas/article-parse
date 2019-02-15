@@ -62,18 +62,20 @@ def extract(filename):
     with open("temptext.txt", "w") as outfile:
         outfile.write(pdf_text)
 
-    # Find start position of any word "reference" that starts a line (should return only one match)
-    potential_reference_starts = [r.start(0) for r in re.finditer(r"\n\s*references", pdf_text, re.IGNORECASE)]
-    print("Found {} lines that could be the title of reference section.".format(len(potential_reference_starts)))
-
-    if len(potential_reference_starts) == 1:
-        reference_section = pdf_text[potential_reference_starts[0]:]
+    reference_section_start = inspect.detect_reference_start_index(pdf_text)
+    
+    if reference_section_start == 0:
+        return "Failed to detect reference start point" 
+    else:
+        reference_section = pdf_text[reference_section_start:]
 
     reference_matcher = inspect.detect_reference_style(reference_section.lstrip())
     print(reference_matcher)
 
-    reference_starts = [r.start(0) for r in re.finditer(reference_matcher, reference_section)]
-    #reference_starts = [r.start(0) for r in re.finditer(r"\n\s+([A-Z].*\([12]\d\d\d\).*\.[\s\S]+?(?=\.))", reference_section)]
+    # Delete the line containing title "References"
+    reference_section = re.sub(r"\n.*references.*?\n", "", reference_section, re.IGNORECASE)
+
+    reference_starts = [r.start() for r in re.finditer(reference_matcher, reference_section)]
 
     references = []
     slice_start = reference_starts[0] if len(reference_starts) > 0 else []
@@ -82,7 +84,7 @@ def extract(filename):
         references.append(ref_cleaned)
         slice_start = ref
     
-    print("\n\n".join(references))
+    print("\nREFERENCE:\n".join(references))
 
     #print(references)
     #references = re.findall(r"\n\s+([A-Z].*\([12]\d\d\d\).*\.[\s\S]+?(?=\.))", reference_section)
