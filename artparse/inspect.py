@@ -133,7 +133,13 @@ def detect_reference_style(reference_text):
 
 def detect_reference_start_index(pdftext):
 
-    potential_reference_starts = [r.start() for r in re.finditer(r"(?:\n|\n\s+|\n.*\s+)(references)", pdftext, re.IGNORECASE)]
+    reference_regexes = [r"(?:\n|\n\s+|\n.*\s+)(references)",           # Title: References
+                         r"(?:\n|\n\s+|\n.*\s+)(literature cited)"]     # Title: Literature cited
+    potential_reference_starts = []
+
+    for title_wording in reference_regexes:
+        potential_reference_starts += [r.start() for r in re.finditer(title_wording, pdftext, re.IGNORECASE)]
+        
     if len(potential_reference_starts) == 0:
         return 0
     elif len(potential_reference_starts) == 1:

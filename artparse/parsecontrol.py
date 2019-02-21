@@ -84,7 +84,7 @@ def extract(filename):
         references.append(ref_cleaned)
         slice_start = ref
     
-    print("\nREFERENCE:\n".join(references))
+    print("\n- ".join(references))
 
     #print(references)
     #references = re.findall(r"\n\s+([A-Z].*\([12]\d\d\d\).*\.[\s\S]+?(?=\.))", reference_section)
