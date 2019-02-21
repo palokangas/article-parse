@@ -1,7 +1,9 @@
 import re
+import os.path
 import pdftotext
 from difflib import SequenceMatcher
 import inspect
+import pdfmanipulate
 
 # TODO: Create datamodel
 
@@ -49,8 +51,23 @@ def pdf2plaintext(pdf, headers_footers, column_info):
 def extract(filename):
 
     pdf = None
-    with open(filename, "rb") as pdf_file:
-        pdf = pdftotext.PDF(pdf_file)
+    has_content = False
+
+    while has_content == False:
+        with open(filename, "rb") as pdf_file:
+            pdf = pdftotext.PDF(pdf_file)
+        if len(pdf[0]) == 0:
+            file_body, file_extension = os.path.splitext(filename)
+            ocr_filename = file_body + "-ocr" + file_extension
+            if os.path.isfile(ocr_filename) == True:
+                print("OCRd file found. Using it.")
+                filename = ocr_filename
+            else:
+                print("No OCRd file found. Generating searchable PDF")
+                pdfmanipulate.scan(filename, len(pdf))
+                filename = ocr_filename
+        else:
+            has_content = True
 
     header_footer_info = inspect.detect_header_footer(pdf)
     column_info = inspect.detect_columns(pdf)

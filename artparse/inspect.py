@@ -33,10 +33,18 @@ def detect_columns(pdf):
         rows = 0
         for row in page.splitlines():
             rows += 1
-            for position in re.finditer(r" ", row):
-                # exclude possible margins
-                if len(row) > 40 and position.start(0) > 19 and position.start(0) < len(row) - 19:
-                        spaces[position.start(0)] += 1
+            for position in [pos.start(0) for pos in re.finditer(r" ", row)]:
+                
+                # exclude possible left margin
+                if position < len(row)/2:
+                    if row[:position].isspace:
+                        continue
+                elif position > len(row)/2:
+                    if row[position:].isspace:
+                        continue
+
+                #if len(row) > 40 and position.start(0) > 19 and position.start(0) < len(row) - 19:
+                spaces[position] += 1
 
         #print(f"{max(spaces.values())} / {rows} = {max(spaces.values()) / rows}")
         if max(spaces.values()) / rows < 0.51:
