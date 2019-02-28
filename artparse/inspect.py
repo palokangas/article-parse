@@ -27,7 +27,7 @@ def detect_margins(page):
     while left_found == False:
         nonspaces = 0
         for row in page.splitlines():
-            if row[left_margin].isspace():
+            if len(row) > left_margin and row[left_margin].isspace():
                 pass
             else:
                 nonspaces +=1
@@ -79,7 +79,7 @@ def detect_columns(pdf):
                     spaces[position] += 1
 
         print(f"{max(spaces.values())} / {rows} = {max(spaces.values()) / rows}")
-        if max(spaces.values()) / rows < 0.51:
+        if max(spaces.values()) / rows < 0.71:
             second_columns_start_indexes.append(0)
             continue
 
@@ -159,6 +159,9 @@ def detect_reference_style(reference_text):
         try:
             print("Trying to detect ref style based on this line:")
             print(line)
+
+            ## Does not work because there can be references 2016a, 2016b etc...
+            ## Switched temporarily to not return parentheses search even though it is more accurate....
             match_year = re.search(r"\s*[A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;]", line)
             #match_year = re.search(r"\s*[A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;]", line)
             print(match_year.string)
@@ -166,38 +169,46 @@ def detect_reference_style(reference_text):
             left_paren = line[match_year.regs[1][0] - 1]
             right_paren = line[match_year.regs[1][1]]
             if left_paren == '(' and right_paren == ')':
-                return re.compile(r"\s*([A-ZÅÄÖØÆ].+\((?:19|20)\d\d\))")
+                #return re.compile(r"\s*([A-ZÅÄÖØÆ].+\((?:19|20)\d\d\))")
+                return re.compile(r"\s*([A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;abcdef])")
             else:
-                return re.compile(r"\s*([A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;])")
+                return re.compile(r"\s*([A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;abcdef])")
         except:
             print("Ignoring a non-reference line")
 
 def detect_reference_start_index(pdftext):
 
-    reference_regexes = [r"(?:\n|\n\s+|\n.*\s+)(references)",           # Title: References
-                         r"(?:\n|\n\s+|\n.*\s+)(literature cited)"]     # Title: Literature cited
+    references_start_index = 0
+    #reference_regexes = [r"(?:\n|\n\s+|\n.*\s+)(references)",           # Title: References
+    #                     r"(?:\n|\n\s+|\n.*\s+)(literature cited)"]     # Title: Literature cited
+    reference_regexes = [r"references.*(\n)",           # Title: References
+                         r"literature cited.*(\n)"]     # Title: Literature cited                         
     potential_reference_starts = []
 
     for title_wording in reference_regexes:
-        potential_reference_starts += [r.start() for r in re.finditer(title_wording, pdftext, re.IGNORECASE)]
+        potential_reference_starts += [r.start(1) + 1 for r in re.finditer(title_wording, pdftext, re.IGNORECASE)]
 
     print(f"There are {len(potential_reference_starts)} potential reference start points")
 
     if len(potential_reference_starts) == 0:
         return 0
     elif len(potential_reference_starts) == 1:
-        return potential_reference_starts[0]
+        references_start_index = potential_reference_starts[0]
     else:
         print("There were more than one probable reference section. Detecting the most probable one.")
         most_probable_start_point = 0
         most_year_mentions = 0
-        for test_start in potential_reference_starts:
+        # Test of correct reference point is based on how many year numbers are followed by the keyword
+        # As it is more likely for references to be in the end of the article (although not always the case)
+        # The number of year numbers is multiplied by index of the finding...
+        for index, test_start in enumerate(potential_reference_starts):
             test_text = pdftext[test_start:test_start+1000]
-            nr_year_mentions = len(re.findall(r"[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;]", test_text))
+            nr_year_mentions = (index +1) * len(re.findall(r"[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;]", test_text))
             print(f"Position {test_start} is followed by {nr_year_mentions} year mentions.")
             if nr_year_mentions > most_year_mentions:
                 most_probable_start_point = test_start
                 most_year_mentions = nr_year_mentions
-        return most_probable_start_point
+        references_start_index = most_probable_start_point
 
+    return references_start_index
 
