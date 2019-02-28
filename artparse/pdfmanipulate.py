@@ -23,4 +23,4 @@ def scan(pdfimage, number_of_pages):
     file_body, file_extension = os.path.splitext(pdfimage)
     output_filename = file_body + "-ocr" + file_extension
     subprocess.run(["pdfunite", *page_names, output_filename])
-    #subprocess.run(["rm", "tmp/scan*"])
+    subprocess.run(["rm", "tmp/scan*"])

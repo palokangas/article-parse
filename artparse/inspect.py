@@ -16,6 +16,43 @@ def get_years_per_page(pdf):
 
     return years_per_page
 
+def detect_margins(page):
+    
+    left_margin = 0
+    right_margin = -1
+    left_found = False
+    right_found = False
+    longest_line = max([len(line) for line in page.splitlines()])
+
+    while left_found == False:
+        nonspaces = 0
+        for row in page.splitlines():
+            if row[left_margin].isspace():
+                pass
+            else:
+                nonspaces +=1
+        #print(f"Found {nonspaces} nonspaces at margin {left_found}")
+        if nonspaces > 2:
+            left_found = True
+            print(f"Left margin found at {left_margin}")
+        else:
+            left_margin += 1
+
+    while right_found == False:
+        nonspaces = 0
+        for row in page.splitlines():
+            if row[right_margin].isspace():
+                pass
+            else:
+                nonspaces +=1
+        #print(f"Found {nonspaces} nonspaces at margin {right_margin}")
+        if nonspaces > 2:
+            right_found = True
+            print(f"Right margin found at {right_margin}")
+        else:
+            right_margin -= 1
+    
+    return (left_margin, longest_line + right_margin)
 
 def detect_columns(pdf):
 
@@ -28,25 +65,20 @@ def detect_columns(pdf):
     second_columns_start_indexes = []
 
     for page in pdf:
+        left_margin, right_margin = detect_margins(page)
 
         spaces = defaultdict(int)
         rows = 0
         for row in page.splitlines():
             rows += 1
-            for position in [pos.start(0) for pos in re.finditer(r" ", row)]:
-                
-                # exclude possible left margin
-                if position < len(row)/2:
-                    if row[:position].isspace:
-                        continue
-                elif position > len(row)/2:
-                    if row[position:].isspace:
-                        continue
+            for space_location in re.finditer(r" ", row):
+                position = space_location.start(0)
 
-                #if len(row) > 40 and position.start(0) > 19 and position.start(0) < len(row) - 19:
-                spaces[position] += 1
+                #if len(row) > 40 and position > 19 and position < len(row) - 19:
+                if position > left_margin or position < right_margin:
+                    spaces[position] += 1
 
-        #print(f"{max(spaces.values())} / {rows} = {max(spaces.values()) / rows}")
+        print(f"{max(spaces.values())} / {rows} = {max(spaces.values()) / rows}")
         if max(spaces.values()) / rows < 0.51:
             second_columns_start_indexes.append(0)
             continue
@@ -74,8 +106,8 @@ def detect_header_footer(pdf_object):
         param1: pdftotext.PDF-object
         return: list of ints: header lines (positive ints) and footer lines (negative ints)
     """
-
-    headers_and_footers = []
+    header_lines = 0
+    footer_lines = 0
     line_to_investigate = 0
 
     if len(pdf_object) < 2:
@@ -98,11 +130,11 @@ def detect_header_footer(pdf_object):
 
         print("For line {} the similarity score is {}".format(line_to_investigate, (sum(similarity_scores) / len(similarity_scores))))
         if (sum(similarity_scores) / len(similarity_scores)) > 0.7:
-            headers_and_footers.append(line_to_investigate)
-
             if line_to_investigate >= 0:
+                header_lines += 1
                 line_to_investigate += 1
             else:
+                footer_lines += 1
                 line_to_investigate -= 1
         else:
             if line_to_investigate >= 0:
@@ -110,7 +142,7 @@ def detect_header_footer(pdf_object):
             else:
                 line_to_investigate = "stop"
     
-    return headers_and_footers
+    return (header_lines, footer_lines)
 
 
 def detect_reference_style(reference_text):
@@ -128,6 +160,7 @@ def detect_reference_style(reference_text):
             print("Trying to detect ref style based on this line:")
             print(line)
             match_year = re.search(r"\s*[A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;]", line)
+            #match_year = re.search(r"\s*[A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;]", line)
             print(match_year.string)
             print(match_year.groups())
             left_paren = line[match_year.regs[1][0] - 1]
@@ -147,7 +180,9 @@ def detect_reference_start_index(pdftext):
 
     for title_wording in reference_regexes:
         potential_reference_starts += [r.start() for r in re.finditer(title_wording, pdftext, re.IGNORECASE)]
-        
+
+    print(f"There are {len(potential_reference_starts)} potential reference start points")
+
     if len(potential_reference_starts) == 0:
         return 0
     elif len(potential_reference_starts) == 1:

@@ -11,7 +11,7 @@ def pdf2plaintext(pdf, headers_footers, column_info):
     """
     Removes headers and footers from pdf and layouts two columns into one.
     param1: pdftotext.PDF object
-    param2: list of header and footer rows
+    param2: tuple: nr of header rows and nr of footer rows
     param3: list of second column start positions per page
     returns: parsed text as string
     """
@@ -26,11 +26,17 @@ def pdf2plaintext(pdf, headers_footers, column_info):
         page = re.sub(r"\t", "    ", page)
         with open("temptext2.txt", "a") as outfile:
             outfile.write(page)
+        
         page_as_lines = page.splitlines()
+        header_lines, footer_lines = headers_footers
 
-        for line_to_remove in headers_footers:
-            print(f"DEL: {page_as_lines[line_to_remove]}")
-            del page_as_lines[line_to_remove]
+        for _ in range(header_lines):
+            print(f"DEL: {page_as_lines[0]}")
+            del page_as_lines[0]
+        
+        for _ in range(footer_lines):
+            print(f"DEL: {page_as_lines[-1]}")
+            del page_as_lines[-1]            
 
         # layout two columns into one
         if column_info[page_number] != 0:
