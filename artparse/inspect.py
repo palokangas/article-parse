@@ -3,7 +3,6 @@ import pdftotext
 from collections import defaultdict
 from difflib import SequenceMatcher
 
-
 def get_years_per_page(pdf):
     """
         Finds possible publication years (1800-2099) from pages
@@ -75,20 +74,22 @@ def detect_columns(pdf):
                 position = space_location.start(0)
 
                 #if len(row) > 40 and position > 19 and position < len(row) - 19:
-                if position > left_margin or position < right_margin:
+                if position >= left_margin or position <= right_margin:
                     spaces[position] += 1
 
         print(f"{max(spaces.values())} / {rows} = {max(spaces.values()) / rows}")
-        if max(spaces.values()) / rows < 0.71:
+        if max(spaces.values()) / rows < 0.61:
             second_columns_start_indexes.append(0)
             continue
 
         highest_space_nr = 0
         index_of_second_column = 0
+        #for position, value in spaces.items():
         for position, value in sorted(spaces.items()):
             if value >= highest_space_nr:
                 highest_space_nr = value
                 index_of_second_column = position
+                print(f"Changing column start value to {position}")
         index_of_second_column += 1
 
         second_columns_start_indexes.append(index_of_second_column)
