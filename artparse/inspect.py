@@ -65,23 +65,31 @@ def detect_columns(pdf):
 
     for page in pdf:
         left_margin, right_margin = detect_margins(page)
+        longest_line = 0
+        for row in page.splitlines():
+            if len(row) > longest_line:
+                longest_line = len(row)
 
         spaces = defaultdict(int)
         rows = 0
         for row in page.splitlines():
+            if len(row) < longest_line:
+                row = row + (" " * (longest_line-len(row)))
             rows += 1
             for space_location in re.finditer(r" ", row):
                 position = space_location.start(0)
 
-                #if len(row) > 40 and position > 19 and position < len(row) - 19:
-                if position >= left_margin or position <= right_margin:
+                if len(row) > 40 and position > 19 and position < len(row) - 19:
+                #if position >= left_margin or position <= right_margin:
                     spaces[position] += 1
 
         print(f"{max(spaces.values())} / {rows} = {max(spaces.values()) / rows}")
-        if max(spaces.values()) / rows < 0.61:
+        if (max(spaces.values()) / rows) < 0.61:
             second_columns_start_indexes.append(0)
             continue
 
+        print("-------------------- SPACES DICT -------------------")
+        print(spaces)
         highest_space_nr = 0
         index_of_second_column = 0
         #for position, value in spaces.items():
@@ -93,10 +101,6 @@ def detect_columns(pdf):
         index_of_second_column += 1
 
         second_columns_start_indexes.append(index_of_second_column)
-        
-        #for position, value in sorted(spaces.items()):
-        #    print("pos: {}, {}".format(position, value)), 
-        #print("---")
 
     return second_columns_start_indexes
 

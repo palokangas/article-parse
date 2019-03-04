@@ -7,28 +7,33 @@ import pdfmanipulate
 
 # TODO: Create datamodel
 
-def trim_left_margin(pages):
+def trim_left_margin(page):
     """
-    Removes any whitespace margin from the left side of the pages (in-place)
-    param1: list of pages as strings
+    Removes any whitespace margin from the left side of the page
+    param1: page as string
+    returns a page with no left margin
     """
+    #print("-------------------TRIMMING THIS")
+    #print(page)
     # Detect margin
-    for page in pages:
-        left_margin = 500
-        for row in page.splitlines():
-            row_whitespace = 0
-            for char_index, character in enumerate(row):
-                if character.isspace():
-                    row_whitespace = char_index
-                else:
-                    break
-            if row_whitespace < left_margin:
-                left_margin = row_whitespace
-        # Remove margin
-        newpage = []
-        for row in page.splitlines():
-            newpage.append(row[left_margin:])
-        page = "\n".join(newpage)    
+    left_margin = 500
+    for row in page.splitlines():
+        row_whitespace = 0
+        for char_index, character in enumerate(row):
+            if character.isspace():
+                row_whitespace = char_index
+            else:
+                break
+        if row_whitespace < left_margin:
+            left_margin = row_whitespace
+    # Remove margin
+    newpage = []
+    for row in page.splitlines():
+        newpage.append(row[left_margin:])
+    #print("---------------------------INTO THIS:")
+    #print("\n".join(newpage))
+
+    return "\n".join(newpage)    
 
 
 def remove_headers_footers(original, headers_footers):
@@ -82,19 +87,26 @@ def two_columns_to_one(pdf, column_info):
         
         page_as_lines = page.splitlines()
 
-        # layout two columns into one
+        # layout two columns into one, trimming each column of left margin
         if column_info[page_number] != 0:
+            singlestring = ""
             #print(f"Processing two-column page {page_number} into one.")
             single_column_lines = []
             for row in page_as_lines:
                 #print(f"LEFT:---{row[:column_info[page_number]].strip()}---")
                 single_column_lines.append(row[:column_info[page_number]])
+            
+            singlestring = trim_left_margin("\n".join(single_column_lines))
+            single_column_lines = []
+
             for row in page_as_lines:
                 #print(f"RIGHT:---{row[column_info[page_number]:].strip()}---")
                 single_column_lines.append(row[column_info[page_number]:])
-            text_pages.append("\n".join(single_column_lines))
+
+            singlestring += "\n" + trim_left_margin("\n".join(single_column_lines))
+            text_pages.append(singlestring)
         else:
-            text_pages.append("\n".join(page_as_lines))
+            text_pages.append(trim_left_margin("\n".join(page_as_lines)))
 
     return text_pages
 
@@ -168,7 +180,7 @@ def extract(filename):
         else:
             has_content = True
 
-    pdf_text = [page for page in pdf]
+    pdf_text = [re.sub(r"\r", "    ", page) for page in pdf]
 
     # Detect and remove headers and footers
     header_footer_info = inspect.detect_header_footer(pdf_text)
@@ -179,9 +191,8 @@ def extract(filename):
     for index, value in enumerate(column_info):
         print("{}: {}".format(index, value))
     pdf_text = two_columns_to_one(pdf_text, column_info)
-
-    #pdf_text = pdf2plaintext(pdf, header_footer_info, column_info)
-    trim_left_margin(pdf_text)
+    
+    #trim_left_margin(pdf_text)
 
     article_as_string = "\n\n".join(pdf_text)
 
