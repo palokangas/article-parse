@@ -4,6 +4,7 @@ import pdftotext
 from difflib import SequenceMatcher
 import inspect
 import pdfmanipulate
+import refparse
 
 # TODO: Create datamodel
 
@@ -12,26 +13,30 @@ def trim_left_margin(page):
     Removes any whitespace margin from the left side of the page
     param1: page as string
     returns a page with no left margin
+    Note: ignores first and last rows on the page (left-over headers, page numbers)
     """
-    #print("-------------------TRIMMING THIS")
-    #print(page)
+    print("-------------------TRIMMING THIS")
+    print(page)
     # Detect margin
-    left_margin = 500
-    for row in page.splitlines():
-        row_whitespace = 0
+    total_rows = len(page.splitlines())
+    left_start = 500
+    for row_nr, row in enumerate(page.splitlines()):
+        if row_nr == 0 or row_nr == total_rows - 1:
+            continue
+        row_start = 0
         for char_index, character in enumerate(row):
             if character.isspace():
-                row_whitespace = char_index
+                row_start = char_index + 1
             else:
                 break
-        if row_whitespace < left_margin:
-            left_margin = row_whitespace
+        if row_start < left_start:
+            left_start = row_start
     # Remove margin
     newpage = []
     for row in page.splitlines():
-        newpage.append(row[left_margin:])
-    #print("---------------------------INTO THIS:")
-    #print("\n".join(newpage))
+        newpage.append(row[left_start:])
+    print("---------------------------INTO THIS:")
+    print("\n".join(newpage))
 
     return "\n".join(newpage)    
 
@@ -80,27 +85,22 @@ def two_columns_to_one(pdf, column_info):
     with open("temptext3.txt", "w") as outfile:
         outfile.write("")
 
-    # remove header and footer lines
     for page_number, page in enumerate(pdf):
         with open("temptext3.txt", "a") as outfile:
-            outfile.write(page + "\n\n")
+            outfile.write(page + "\n" + "--- PAGE BREAK (only in this file) ---" + "\n")
         
         page_as_lines = page.splitlines()
 
-        # layout two columns into one, trimming each column of left margin
         if column_info[page_number] != 0:
             singlestring = ""
-            #print(f"Processing two-column page {page_number} into one.")
             single_column_lines = []
             for row in page_as_lines:
-                #print(f"LEFT:---{row[:column_info[page_number]].strip()}---")
                 single_column_lines.append(row[:column_info[page_number]])
             
             singlestring = trim_left_margin("\n".join(single_column_lines))
             single_column_lines = []
 
             for row in page_as_lines:
-                #print(f"RIGHT:---{row[column_info[page_number]:].strip()}---")
                 single_column_lines.append(row[column_info[page_number]:])
 
             singlestring += "\n" + trim_left_margin("\n".join(single_column_lines))
@@ -109,55 +109,6 @@ def two_columns_to_one(pdf, column_info):
             text_pages.append(trim_left_margin("\n".join(page_as_lines)))
 
     return text_pages
-
-
-
-def pdf2plaintext(pdf, headers_footers, column_info):
-    """
-    Removes headers and footers from pdf and layouts two columns into one.
-    param1: pdftotext.PDF object
-    param2: tuple: nr of header rows and nr of footer rows
-    param3: list of second column start positions per page
-    returns: parsed text as string
-    """
-
-    text_pages = []
-
-    with open("temptext2.txt", "w") as outfile:
-        outfile.write("")
-
-    # remove header and footer lines
-    for page_number, page in enumerate(pdf):
-        #page = re.sub(r"\t", "    ", page)
-        with open("temptext2.txt", "a") as outfile:
-            outfile.write(page)
-        
-        page_as_lines = page.splitlines()
-        header_lines, footer_lines = headers_footers
-
-        for _ in range(header_lines):
-            print(f"DEL: {page_as_lines[0]}")
-            del page_as_lines[0]
-        
-        for _ in range(footer_lines):
-            print(f"DEL: {page_as_lines[-1]}")
-            del page_as_lines[-1]            
-
-        # layout two columns into one
-        if column_info[page_number] != 0:
-            #print(f"Processing two-column page {page_number} into one.")
-            single_column_lines = []
-            for row in page_as_lines:
-                #print(f"LEFT:---{row[:column_info[page_number]].strip()}---")
-                single_column_lines.append(row[:column_info[page_number]])
-            for row in page_as_lines:
-                #print(f"RIGHT:---{row[column_info[page_number]:].strip()}---")
-                single_column_lines.append(row[column_info[page_number]:])
-            text_pages.append("\n".join(single_column_lines))
-        else:
-            text_pages.append("\n".join(page_as_lines))
-
-    return "\n\n".join(text_pages)
 
 def extract(filename):
 
@@ -180,7 +131,8 @@ def extract(filename):
         else:
             has_content = True
 
-    pdf_text = [re.sub(r"\r", "    ", page) for page in pdf]
+    #pdf_text = [re.sub(r"\r", "    ", page) for page in pdf]
+    pdf_text = [page for page in pdf]
 
     # Detect and remove headers and footers
     header_footer_info = inspect.detect_header_footer(pdf_text)
@@ -192,8 +144,6 @@ def extract(filename):
         print("{}: {}".format(index, value))
     pdf_text = two_columns_to_one(pdf_text, column_info)
     
-    #trim_left_margin(pdf_text)
-
     article_as_string = "\n\n".join(pdf_text)
 
     with open("temptext.txt", "w") as outfile:
@@ -214,16 +164,12 @@ def extract(filename):
 
     reference_starts = [r.start() for r in re.finditer(reference_matcher, reference_section)]
 
-    references = []
-    slice_start = reference_starts[0] if len(reference_starts) > 0 else []
-    for ref in reference_starts:
-        ref_cleaned = re.sub(r"\s+", " ", reference_section[slice_start:ref].strip())
-        references.append(ref_cleaned)
-        slice_start = ref
+    references = refparse.indentation_parse(reference_section)
+    #references = []
+    #slice_start = reference_starts[0] if len(reference_starts) > 0 else []
+    #for ref in reference_starts:
+    #    ref_cleaned = re.sub(r"\s+", " ", reference_section[slice_start:ref].strip())
+    #    references.append(ref_cleaned)
+    #    slice_start = ref
     
-    print("\n- ".join(references))
-
-    #print(references)
-    #references = re.findall(r"\n\s+([A-Z].*\([12]\d\d\d\).*\.[\s\S]+?(?=\.))", reference_section)
-    #references = [re.sub(r"\s+", ' ', ref) for ref in references]
-    #return references
+    print("\n\n- ".join(references))
