@@ -4,7 +4,7 @@ import pdftotext
 from difflib import SequenceMatcher
 import inspect
 import pdfmanipulate
-import refparse
+from parser import Extractor
 
 # TODO: Create datamodel
 
@@ -112,64 +112,74 @@ def two_columns_to_one(pdf, column_info):
 
 def extract(filename):
 
-    pdf = None
-    has_content = False
+    # pdf = None
+    # has_content = False
+    # while has_content == False:
+    #     with open(filename, "rb") as pdf_file:
+    #         pdf = pdftotext.PDF(pdf_file)
+    #     if len(pdf[0]) == 0:
+    #         file_body, file_extension = os.path.splitext(filename)
+    #         ocr_filename = file_body + "-ocr" + file_extension
+    #         if os.path.isfile(ocr_filename) == True:
+    #             print("OCRd file found. Using it.")
+    #             filename = ocr_filename
+    #         else:
+    #             print("No OCRd file found. Generating searchable PDF")
+    #             pdfmanipulate.scan(filename, len(pdf))
+    #             filename = ocr_filename
+    #     else:
+    #         has_content = True
 
-    while has_content == False:
-        with open(filename, "rb") as pdf_file:
-            pdf = pdftotext.PDF(pdf_file)
-        if len(pdf[0]) == 0:
-            file_body, file_extension = os.path.splitext(filename)
-            ocr_filename = file_body + "-ocr" + file_extension
-            if os.path.isfile(ocr_filename) == True:
-                print("OCRd file found. Using it.")
-                filename = ocr_filename
-            else:
-                print("No OCRd file found. Generating searchable PDF")
-                pdfmanipulate.scan(filename, len(pdf))
-                filename = ocr_filename
-        else:
-            has_content = True
+    article = Extractor(filename)
+    article.read()
+    article.detect_headers_footers()
+    article.remove_headers_footers()
+    article.detect_columns()
+    article.two_columns_to_one()
+    article.detect_reference_start()
+    article.detect_references_layout()
+    if article.references_layout == "indentation":
+        article.indentation_parse()
+    else:
+        article.author_year_parse()
 
-    #pdf_text = [re.sub(r"\r", "    ", page) for page in pdf]
-    pdf_text = [page for page in pdf]
-
+    #pdf_text = [page for page in pdf]
     # Detect and remove headers and footers
-    header_footer_info = inspect.detect_header_footer(pdf_text)
-    pdf_text = remove_headers_footers(pdf_text, header_footer_info)
+    #header_footer_info = inspect.detect_header_footer(pdf_text)
+    #pdf_text = remove_headers_footers(pdf_text, header_footer_info)
     
     # Detect columns and re-layout  
-    column_info = inspect.detect_columns(pdf_text)
-    for index, value in enumerate(column_info):
-        print("{}: {}".format(index, value))
-    pdf_text = two_columns_to_one(pdf_text, column_info)
+    # column_info = inspect.detect_columns(pdf_text)
+    # for index, value in enumerate(column_info):
+    #    print("{}: {}".format(index, value))
+    #pdf_text = two_columns_to_one(pdf_text, column_info)
     
-    article_as_string = "\n\n".join(pdf_text)
+    # article_as_string = "\n\n".join(pdf_text)
 
-    with open("temptext.txt", "w") as outfile:
-        outfile.write(article_as_string)
+    # with open("temptext.txt", "w") as outfile:
+    #     outfile.write(article_as_string)
 
-    reference_section_start = inspect.detect_reference_start_index(article_as_string)
+    # reference_section_start = inspect.detect_reference_start_index(article_as_string)
     
-    if reference_section_start == 0:
-        return "Failed to detect reference start point" 
-    else:
-        reference_section = article_as_string[reference_section_start:]
+    #if self.reference_section_start == 0:
+    #    return "Failed to detect reference start point" 
+    #else:
+    #    reference_section = article_as_string[reference_section_start:]
 
-    reference_matcher = inspect.detect_reference_style(reference_section.lstrip())
-    print(reference_matcher)
+    #reference_matcher = inspect.detect_reference_style(reference_section.lstrip())
+    #print(reference_matcher)
 
     # Delete the line containing title "References"
-    reference_section = re.sub(r"\n.*references.*?\n", "", reference_section, re.IGNORECASE)
+    #reference_section = re.sub(r"\n.*references.*?\n", "", reference_section, re.IGNORECASE)
 
-    reference_starts = [r.start() for r in re.finditer(reference_matcher, reference_section)]
+    #reference_starts = [r.start() for r in re.finditer(reference_matcher, reference_section)]
 
-    references = refparse.indentation_parse(reference_section)
+    #references = refparse.indentation_parse(reference_section)
     #references = []
     #slice_start = reference_starts[0] if len(reference_starts) > 0 else []
     #for ref in reference_starts:
     #    ref_cleaned = re.sub(r"\s+", " ", reference_section[slice_start:ref].strip())
     #    references.append(ref_cleaned)
     #    slice_start = ref
-    
-    print("\n\n- ".join(references))
+    print(f"Number of detected references: {len(article.references)}")
+    print("\n\n- ".join(article.references))

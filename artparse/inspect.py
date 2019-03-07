@@ -186,12 +186,12 @@ def detect_reference_start_index(pdftext):
     references_start_index = 0
     #reference_regexes = [r"(?:\n|\n\s+|\n.*\s+)(references)",           # Title: References
     #                     r"(?:\n|\n\s+|\n.*\s+)(literature cited)"]     # Title: Literature cited
-    reference_regexes = [r"references.*(\n)",           # Title: References
-                         r"literature cited.*(\n)"]     # Title: Literature cited                         
+    reference_regexes = [r"\breferences\b",           # Title: References
+                         r"\bliterature cited\b"]     # Title: Literature cited                         
     potential_reference_starts = []
 
     for title_wording in reference_regexes:
-        potential_reference_starts += [r.start(0) for r in re.finditer(title_wording, pdftext, re.IGNORECASE)]
+        potential_reference_starts += [r.end(0) + 1 for r in re.finditer(title_wording, pdftext, re.IGNORECASE)]
 
     print("Found these mentions of word reference")
     for ref in potential_reference_starts:
@@ -211,15 +211,12 @@ def detect_reference_start_index(pdftext):
         # As it is more likely for references to be in the end of the article (although not always the case)
         # The number of year numbers is multiplied by index of the finding...
         for index, test_start in enumerate(potential_reference_starts):
-            if pdftext[test_start-1] in ['p', 'P']:
-                pass
-            else:
-                test_text = pdftext[test_start:test_start+1000]
-                nr_year_mentions = (index +1) * len(re.findall(r"[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;]", test_text))
-                print(f"Position {test_start} is followed by {nr_year_mentions} year mentions.")
-                if nr_year_mentions > most_year_mentions:
-                    most_probable_start_point = test_start
-                    most_year_mentions = nr_year_mentions
+            test_text = pdftext[test_start:test_start+1000]
+            nr_year_mentions = (index +1) * len(re.findall(r"[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;]", test_text))
+            print(f"Position {test_start} is followed by {nr_year_mentions} year mentions.")
+            if nr_year_mentions > most_year_mentions:
+                most_probable_start_point = test_start
+                most_year_mentions = nr_year_mentions
         references_start_index = most_probable_start_point
 
     return references_start_index
