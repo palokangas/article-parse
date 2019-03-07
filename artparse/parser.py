@@ -13,6 +13,7 @@ class Extractor(object):
         self.references_start_index = None
         self.references = []
         self.references_layout = None
+        self.reference_style = None
 
     def __str__(self):
         if self.pdf:
@@ -222,34 +223,60 @@ class Extractor(object):
     def detect_reference_style(self):
 
         """
-        compiles a regular expression object for matching from first author to year
+        
         """
-        if self.references_start_index is None or self.references_start_index == 0:
-            print("Reference section has not been detected")
+        if len(self.references) < 1:
+            print("There are no references.")
             return
         
-        reference_lines = self.get_fulltext().splitlines()
+        self.reference_style = {}
 
-        for line in reference_lines:
-            try:
-                print("Trying to detect ref style based on this line:")
-                print(line)
+        # Try to detect ISO 690 type references style based on location of year number
+        year_positions = []
+        for reference in self.references:
+            years = [r.end() for r in re.finditer(r"(?:19|20)\d\d", reference)] 
+            for match in years: 
+                year_positions.append(match/len(reference))
+        
+        if sum(year_positions)/len(year_positions) > 0.6:
+            self.reference_style['bibref'] = 'iso690'
+        else:
+            self.reference_style['bibref'] = 'apa'
 
-                ## Does not work because there can be references 2016a, 2016b etc...
-                ## Switched temporarily to not return parentheses search even though it is more accurate....
-                match_year = re.search(r"\s*[A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;]", line)
-                #match_year = re.search(r"\s*[A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;]", line)
-                print(match_year.string)
-                print(match_year.groups())
-                left_paren = line[match_year.regs[1][0] - 1]
-                right_paren = line[match_year.regs[1][1]]
-                if left_paren == '(' and right_paren == ')':
-                    #return re.compile(r"\s*([A-ZÅÄÖØÆ].+\((?:19|20)\d\d\))")
-                    return re.compile(r"\s*([A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;abcdef])")
-                else:
-                    return re.compile(r"\s*([A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;abcdef])")
-            except:
-                print("Ignoring a non-reference line")
+        # Detect if year numbers are parenthesized
+        parenthesized = 0
+        for reference in self.references:
+            years = [r.end() for r in re.finditer(r"(?:19|20)\d\d", reference)] 
+            for match in years: 
+                if match < len(reference) - 1:
+                    if reference[match] == ")":
+                        parenthesized += 1
+
+        if parenthesized / len(self.references) > 0.5:
+            self.reference_style['parenthesis'] = True
+        else:
+            self.reference_style['parenthesis'] = False
+        
+        # for line in reference_lines:
+        #     try:
+        #         print("Trying to detect ref style based on this line:")
+        #         print(line)
+
+        #         ## Does not work because there can be references 2016a, 2016b etc...
+        #         ## Switched temporarily to not return parentheses search even though it is more accurate....
+        #         match_year = re.search(r"\s*[A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;]", line)
+        #         #match_year = re.search(r"\s*[A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;]", line)
+        #         print(match_year.string)
+        #         print(match_year.groups())
+        #         left_paren = line[match_year.regs[1][0] - 1]
+        #         right_paren = line[match_year.regs[1][1]]
+        #         if left_paren == '(' and right_paren == ')':
+        #             #return re.compile(r"\s*([A-ZÅÄÖØÆ].+\((?:19|20)\d\d\))")
+        #             return re.compile(r"\s*([A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;abcdef])")
+        #         else:
+        #             return re.compile(r"\s*([A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;abcdef])")
+        #     except:
+        #         print("Ignoring a non-reference line")
 
     def detect_references_layout(self):
         """
