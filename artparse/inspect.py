@@ -149,7 +149,6 @@ def detect_header_footer(pdf_object):
     
     return (header_lines, footer_lines)
 
-
 def detect_reference_style(reference_text):
 
     """
@@ -180,44 +179,3 @@ def detect_reference_style(reference_text):
                 return re.compile(r"\s*([A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;abcdef])")
         except:
             print("Ignoring a non-reference line")
-
-def detect_reference_start_index(pdftext):
-
-    references_start_index = 0
-    #reference_regexes = [r"(?:\n|\n\s+|\n.*\s+)(references)",           # Title: References
-    #                     r"(?:\n|\n\s+|\n.*\s+)(literature cited)"]     # Title: Literature cited
-    reference_regexes = [r"\breferences\b",           # Title: References
-                         r"\bliterature cited\b"]     # Title: Literature cited                         
-    potential_reference_starts = []
-
-    for title_wording in reference_regexes:
-        potential_reference_starts += [r.end(0) + 1 for r in re.finditer(title_wording, pdftext, re.IGNORECASE)]
-
-    print("Found these mentions of word reference")
-    for ref in potential_reference_starts:
-        print(f"MATCH: {pdftext[ref-1:ref+20]}...")
-
-    print(f"There are {len(potential_reference_starts)} potential reference start points")
-
-    if len(potential_reference_starts) == 0:
-        return 0
-    elif len(potential_reference_starts) == 1:
-        references_start_index = potential_reference_starts[0]
-    else:
-        print("There were more than one probable reference section. Detecting the most probable one.")
-        most_probable_start_point = 0
-        most_year_mentions = 0
-        # Test of correct reference point is based on how many year numbers are followed by the keyword
-        # As it is more likely for references to be in the end of the article (although not always the case)
-        # The number of year numbers is multiplied by index of the finding...
-        for index, test_start in enumerate(potential_reference_starts):
-            test_text = pdftext[test_start:test_start+1000]
-            nr_year_mentions = (index +1) * len(re.findall(r"[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;]", test_text))
-            print(f"Position {test_start} is followed by {nr_year_mentions} year mentions.")
-            if nr_year_mentions > most_year_mentions:
-                most_probable_start_point = test_start
-                most_year_mentions = nr_year_mentions
-        references_start_index = most_probable_start_point
-
-    return references_start_index
-

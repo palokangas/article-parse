@@ -2,6 +2,7 @@ import os.path
 import subprocess
 
 # Create images from PDF file
+# NOTE: Currently does not yield satisfactory results and this is not used by the parser.Extractor
 
 def pdf2images(pdfimage):
     print("Converting image pdf to tiff-images")
