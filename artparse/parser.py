@@ -1,4 +1,6 @@
 import pdftotext
+from collections import defaultdict
+from difflib import SequenceMatcher
 import inspect
 import re
 
@@ -7,6 +9,7 @@ class Extractor(object):
         self.pdffile = pdffile
         self.pdf = None
         self.header_footer_info = None
+        self.column_info = None
         self.references_start_index = None
         self.references = []
         self.references_layout = None
@@ -22,7 +25,24 @@ class Extractor(object):
             return "\n\n".join(self.pdf) + "\n\n"
         else:
             return ""
-          
+
+    def get_references(self):
+        if len(self.references) > 0:
+            return self.references
+        else:
+            self.read()
+            self.detect_headers_footers()
+            self.remove_headers_footers()
+            self.detect_columns()
+            self.two_columns_to_one()
+            self.detect_reference_start()
+            self.detect_references_layout()
+            if self.references_layout == "indentation":
+                self.indentation_parse()
+            else:
+                self.author_year_parse()
+            return self.references
+
     def read(self):
         """Read pdf from given file location into list of page strings"""
 
@@ -33,11 +53,133 @@ class Extractor(object):
             except FileNotFoundError:
                 print("Error: File not found")
 
+    def detect_margins(self, page):
+        
+        left_margin = 0
+        right_margin = -1
+        left_found = False
+        right_found = False
+        longest_line = max([len(line) for line in page.splitlines()])
+
+        while left_found == False:
+            nonspaces = 0
+            for row in page.splitlines():
+                if len(row) > left_margin and row[left_margin].isspace():
+                    pass
+                else:
+                    nonspaces +=1
+            #print(f"Found {nonspaces} nonspaces at margin {left_found}")
+            if nonspaces > 2:
+                left_found = True
+                print(f"Left margin found at {left_margin}")
+            else:
+                left_margin += 1
+
+        while right_found == False:
+            nonspaces = 0
+            for row in page.splitlines():
+                if row[right_margin].isspace():
+                    pass
+                else:
+                    nonspaces +=1
+            #print(f"Found {nonspaces} nonspaces at margin {right_margin}")
+            if nonspaces > 2:
+                right_found = True
+                print(f"Right margin found at {right_margin}")
+            else:
+                right_margin -= 1
+        
+        return (left_margin, longest_line + right_margin)
+
+    # TODO: Make work with matching but differenent even and odd page headers and footers
     def detect_headers_footers(self):
-        self.header_footer_info = inspect.detect_header_footer(self.pdf)
+        """
+        Detects the number of header and footer lines from pdf_object
+        """
+        header_lines = 0
+        footer_lines = 0
+        line_to_investigate = 0
+
+        if len(self.pdf) < 2:
+            print("There should be at least 2 pages to identify header and footer by similarity.")
+            self.header_footer_info = (0 , 0)
+
+        while line_to_investigate != "stop":
+
+            lines_to_compare = []    
+            for page in self.pdf:
+                # get the line in question, remove whitespace, add to list
+                lines_to_compare.append(re.sub(r"\s+", " ", page.splitlines()[line_to_investigate]))
+            
+            similarity_scores = []
+            line1 = lines_to_compare[0]
+            for line2 in lines_to_compare[1:]:
+                similarity_scores.append(SequenceMatcher(None, line1, line2).ratio())
+                #print(SequenceMatcher(None, line1, line2).ratio())
+                line1 = line2
+
+            print("For line {} the similarity score is {}".format(line_to_investigate, (sum(similarity_scores) / len(similarity_scores))))
+            if (sum(similarity_scores) / len(similarity_scores)) > 0.7:
+                if line_to_investigate >= 0:
+                    header_lines += 1
+                    line_to_investigate += 1
+                else:
+                    footer_lines += 1
+                    line_to_investigate -= 1
+            else:
+                if line_to_investigate >= 0:
+                    line_to_investigate = -1
+                else:
+                    line_to_investigate = "stop"
+        
+        self.header_footer_info = (header_lines, footer_lines)
 
     def detect_columns(self):
-        self.column_info = inspect.detect_columns(self.pdf)
+        """
+        Detects if there are one or two columns
+        Stores second column start indexes in a list of integers
+        """
+
+        second_columns_start_indexes = []
+
+        for page in self.pdf:
+            left_margin, right_margin = self.detect_margins(page)
+            longest_line = 0
+            for row in page.splitlines():
+                if len(row) > longest_line:
+                    longest_line = len(row)
+
+            spaces = defaultdict(int)
+            rows = 0
+            for row in page.splitlines():
+                if len(row) < longest_line:
+                    row = row + (" " * (longest_line-len(row)))
+                rows += 1
+                for space_location in re.finditer(r" ", row):
+                    position = space_location.start(0)
+
+                    if len(row) > 40 and position > 19 and position < len(row) - 19:
+                    #if position >= left_margin or position <= right_margin:
+                        spaces[position] += 1
+
+            print(f"{max(spaces.values())} / {rows} = {max(spaces.values()) / rows}")
+            if (max(spaces.values()) / rows) < 0.61:
+                second_columns_start_indexes.append(0)
+                continue
+
+            highest_space_nr = 0
+            index_of_second_column = 0
+            #for position, value in spaces.items():
+            for position, value in sorted(spaces.items()):
+                if value >= highest_space_nr:
+                    highest_space_nr = value
+                    index_of_second_column = position
+                    print(f"Changing column start value to {position}")
+            index_of_second_column += 1
+
+            second_columns_start_indexes.append(index_of_second_column)
+
+        self.column_info = second_columns_start_indexes
 
     def detect_reference_start(self):
 
@@ -65,7 +207,7 @@ class Extractor(object):
             most_probable_start_point = 0
             most_year_mentions = 0
             # Test of correct reference point is based on how many year numbers are followed by the keyword
-            # As it is more likely for references to be in the end of the article (although not always the case)
+            # As it is more likely for references to be in the end of the self (although not always the case)
             # The number of year numbers is multiplied by index of the finding...
             for index, test_start in enumerate(potential_reference_starts):
                 test_text = pdftext[test_start:test_start+1000]
@@ -75,6 +217,39 @@ class Extractor(object):
                     most_probable_start_point = test_start
                     most_year_mentions = nr_year_mentions
             self.references_start_index = most_probable_start_point
+
+    # TODO: This is leftover code, hanging here if a regex creator function is needed soon
+    def detect_reference_style(self):
+
+        """
+        compiles a regular expression object for matching from first author to year
+        """
+        if self.references_start_index is None or self.references_start_index == 0:
+            print("Reference section has not been detected")
+            return
+        
+        reference_lines = self.get_fulltext().splitlines()
+
+        for line in reference_lines:
+            try:
+                print("Trying to detect ref style based on this line:")
+                print(line)
+
+                ## Does not work because there can be references 2016a, 2016b etc...
+                ## Switched temporarily to not return parentheses search even though it is more accurate....
+                match_year = re.search(r"\s*[A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;]", line)
+                #match_year = re.search(r"\s*[A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;]", line)
+                print(match_year.string)
+                print(match_year.groups())
+                left_paren = line[match_year.regs[1][0] - 1]
+                right_paren = line[match_year.regs[1][1]]
+                if left_paren == '(' and right_paren == ')':
+                    #return re.compile(r"\s*([A-ZÅÄÖØÆ].+\((?:19|20)\d\d\))")
+                    return re.compile(r"\s*([A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;abcdef])")
+                else:
+                    return re.compile(r"\s*([A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;abcdef])")
+            except:
+                print("Ignoring a non-reference line")
 
     def detect_references_layout(self):
         """
@@ -204,7 +379,7 @@ class Extractor(object):
     def indentation_parse(self):
         """
         Parses the references string assuming references are separated by indendation
-        Param1: reference section of an article as string
+        Param1: reference section of an self as string
         Returns a list of detected references as strings
         """
         if self.references_start_index is None or self.references_start_index == 0:
@@ -238,7 +413,7 @@ class Extractor(object):
                 if unindented_lines > MAX_LINES:
                     break
         
-        # If the article reached its end with the final reference, write the last reference
+        # If the self reached its end with the final reference, write the last reference
         if self._is_beyond_references == False:
             current_reference = self._trim_numbering(current_reference)
             current_reference = re.sub(r"\s+", " ", current_reference)
@@ -250,9 +425,9 @@ class Extractor(object):
         """Checks if parsing reached beyond references section. Returns boolean. """
         ending_indicators = [r"suggested citation",
                              r"would like to thank",
-                             r"this article is",
+                             r"this self is",
                              r"further reading",
-                             r"this article has been", 
+                             r"this self has been", 
                              r"by the authors",
                             ]
 
