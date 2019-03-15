@@ -37,4 +37,5 @@ def extract(filename):
         article.author_year_parse()
 
     print(f"Number of detected references: {len(article.references)}")
-    print("\n\n- ".join(article.references))
+    for ref in article.references:
+        print(f"- {type(ref)}")

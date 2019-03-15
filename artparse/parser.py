@@ -1,7 +1,7 @@
 import pdftotext
 from collections import defaultdict
 from difflib import SequenceMatcher
-import inspect
+import reference, author
 import re
 
 class Extractor(object):
@@ -219,11 +219,12 @@ class Extractor(object):
                     most_year_mentions = nr_year_mentions
             self.references_start_index = most_probable_start_point
 
-    # TODO: This is leftover code, hanging here if a regex creator function is needed soon
     def detect_reference_style(self):
 
         """
-        
+        Detects reference style: currently author-year-title-publication vs. author-title-publication-year
+        The detection is based simply on location of the year in the reference: end vs. start
+        This also detects whether the publication year is parenthesized.
         """
         if len(self.references) < 1:
             print("There are no references.")
@@ -234,7 +235,7 @@ class Extractor(object):
         # Try to detect ISO 690 type references style based on location of year number
         year_positions = []
         for reference in self.references:
-            years = [r.end() for r in re.finditer(r"(?:19|20)\d\d", reference)] 
+            years = [r.end() for r in re.finditer(r"(?:19|20)\d\d", reference.rawtext)] 
             for match in years: 
                 year_positions.append(match/len(reference))
         
@@ -246,7 +247,7 @@ class Extractor(object):
         # Detect if year numbers are parenthesized
         parenthesized = 0
         for reference in self.references:
-            years = [r.end() for r in re.finditer(r"(?:19|20)\d\d", reference)] 
+            years = [r.end() for r in re.finditer(r"(?:19|20)\d\d", reference.rawtext)] 
             for match in years: 
                 if match < len(reference) - 1:
                     if reference[match] == ")":
@@ -257,27 +258,6 @@ class Extractor(object):
         else:
             self.reference_style['parenthesis'] = False
         
-        # for line in reference_lines:
-        #     try:
-        #         print("Trying to detect ref style based on this line:")
-        #         print(line)
-
-        #         ## Does not work because there can be references 2016a, 2016b etc...
-        #         ## Switched temporarily to not return parentheses search even though it is more accurate....
-        #         match_year = re.search(r"\s*[A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;]", line)
-        #         #match_year = re.search(r"\s*[A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;]", line)
-        #         print(match_year.string)
-        #         print(match_year.groups())
-        #         left_paren = line[match_year.regs[1][0] - 1]
-        #         right_paren = line[match_year.regs[1][1]]
-        #         if left_paren == '(' and right_paren == ')':
-        #             #return re.compile(r"\s*([A-ZÅÄÖØÆ].+\((?:19|20)\d\d\))")
-        #             return re.compile(r"\s*([A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;abcdef])")
-        #         else:
-        #             return re.compile(r"\s*([A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;abcdef])")
-        #     except:
-        #         print("Ignoring a non-reference line")
-
     def detect_references_layout(self):
         """
         Try to detect references layout on lines. At the moment only indentation really detected
@@ -434,7 +414,7 @@ class Extractor(object):
                     current_reference = re.sub(r"\s+", " ", current_reference)
                     if self._is_beyond_references(current_reference):
                         break
-                    self.references.append(current_reference)
+                    self.references.append(reference.Reference(current_reference))
                 current_reference = row
                 unindented_lines += 1
                 if unindented_lines > MAX_LINES:
@@ -444,7 +424,7 @@ class Extractor(object):
         if self._is_beyond_references == False:
             current_reference = self._trim_numbering(current_reference)
             current_reference = re.sub(r"\s+", " ", current_reference)
-            self.references.append(current_reference)
+            self.references.append(reference.Reference(current_reference))
 
         self._fix_references()
 
@@ -463,28 +443,6 @@ class Extractor(object):
                 return True        
         return False
 
-    def _fix_references(self):
-        """
-        Apply small fixes to references here. Such as replace repetition symbols with author names
-        """
-        
-        # Replace repetition symbols with author names
-        for ref_index, reference in enumerate(self.references):
-            if ref_index != 0 and reference[:2] in ["--", "––", "——"]:
-                previous_reference = self.references[ref_index-1]
-                authors_end_index = previous_reference.find(".")
-                self.references[ref_index] = re.sub(r"^[-–—]+", previous_reference[:authors_end_index] + ".", reference)
-
-        # Try detect if the last references are actually trailing info and delete as needed
-        last_unclear = True
-        while last_unclear == True:
-            if len(re.findall(r"(?:19|20)\d\d", self.references[-1])) == 0:
-                print("Deleting trailing text that does not seem to be a reference:")
-                print(self.references[-1])
-                del self.references[-1]
-            else:
-                last_unclear = False
-
     def author_year_parse(self):
 
         if self.references_start_index is None or self.references_start_index == 0:
@@ -502,7 +460,7 @@ class Extractor(object):
 
             if self._is_beyond_references(ref_cleaned):
                 break
-            self.references.append(ref_cleaned)
+            self.references.append(reference.Reference(ref_cleaned))
             slice_start = ref
  
         last_section = reference_string[slice_start:]
@@ -514,6 +472,33 @@ class Extractor(object):
         
         last_ref = re.sub(r"\s+", " ", last_ref)
         if self._is_beyond_references(last_ref) == False:
-            self.references.append(last_ref)
+            self.references.append(reference.Reference(last_ref))
 
         self._fix_references()
+
+    def _fix_references(self):
+        """
+        Apply small fixes to references here. Such as replace repetition symbols with author names
+        """
+        
+        # Replace repetition symbols with author names
+        for ref_index, reference in enumerate(self.references):
+            if ref_index != 0 and reference.rawtext[:2] in ["--", "––", "——"]:
+                previous_reference = self.references[ref_index-1]
+                authors_end_index = previous_reference.rawtext.find(".")
+                self.references[ref_index].rawtext = re.sub(r"^[-–—]+", previous_reference.rawtext[:authors_end_index] + ".", reference.rawtext)
+
+        # Try detect if the last references are actually trailing info and delete as needed
+        last_unclear = True
+        while last_unclear == True:
+            if len(re.findall(r"(?:19|20)\d\d", self.references[-1].rawtext)) == 0:
+                print("Deleting trailing text that does not seem to be a reference:")
+                print(self.references[-1])
+                del self.references[-1]
+            else:
+                last_unclear = False
+
+    def create_authors(self):
+        pass
+
+    
