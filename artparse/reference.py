@@ -5,6 +5,7 @@ class Reference(object):
         self.title = ""
         self.authors = []
         self.pdffile = ""
+        self.year = None
         # Store references span tuples especially for implementing interactive fixing of complicated references
         self.span_authors = ()
         self.span_title = ()

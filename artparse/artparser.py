@@ -1,3 +1,4 @@
+import sys
 import pdftotext
 from collections import defaultdict
 from difflib import SequenceMatcher
@@ -516,7 +517,7 @@ class Extractor(object):
                 last_unclear = False
 
     # TODO: Distinguish authors of an edited book = ending with (eds.), "(ed.)" etc.
-    def create_authors(self, ref, overwrite=True):
+    def extract_authors(self, ref, overwrite=True):
         """
         Creates a list of Author objects from raw reference text.
         To prevent overwriting existing information, set overwrite to False        
@@ -526,6 +527,7 @@ class Extractor(object):
             print("Detected authors exist for this reference and overwrite set to False. Not doing anything.")
             return
 
+        # Parse APA style references
         if self.reference_style['bibref'] == "apa":
             if self.reference_style['parenthesis'] == True:
                 year_matcher = re.compile(r"\((?:19|20)\d\d[abcdef]{0,1}\)")
@@ -567,6 +569,8 @@ class Extractor(object):
                 ref.authors.append(new_author)
                 print(f"Found non-person-author: {new_author}")
 
+        # Parse iso890 style references.
+        # TODO: This parse style could be implemented for APA as well, with shared code.
         elif self.reference_style['bibref'] == "iso690":
             author_splice = ref.rawtext.strip()
             author_matcher = re.compile(r"^[A-ZÅÖÄØŒÆØ].{0,25}?,(?:\s*[A-ZÅÖÄØŒÆØ-]?\.*)+\s*[;,.&]")
@@ -598,7 +602,7 @@ class Extractor(object):
             # If no people names are found, assume the author is an institution, anonymous report, software etc.
             if number_of_authors == 0:
                 # Assume the name ends with period and whitespace character. This might yield limited results
-                # If name is of type "BIG INSTITUTION. Sub-department." etc. but we will still get BIG INSTITUTION.
+                # if name is of type "BIG INSTITUTION. Sub-department." etc. but we will still get BIG INSTITUTION.
                 name_end = re.search(r"\.\s", author_splice)
                 author_splice = author_splice[:name_end.start()].strip()
                 if author_splice[-1] in ["&", ",", "(", ";"]: author_splice = author_splice[:-1]               
@@ -608,9 +612,36 @@ class Extractor(object):
                 ref.span_authors = (0, name_end.end())
                 print(f"Updating authors span: {ref.span_authors}")
  
-
         else:
             print("No reference style available. Trying blindfolded with possibly broken success")
             
+    def extract_year(self, ref):
+        """
+        Extract publication year from reference text. Update reference year and year index span info
+        """
+        year_matcher = re.compile(r"(?:19|20)\d\d[abcdef]{0,1}")         
+        if self.reference_style['bibref'] == "apa":
+            try:
+                year_position = re.search(year_matcher, ref.rawtext)
+                ref.year = year_position.group()
+                ref.span_year = (year_position.start(), year_position.end())
+                #print(f"Detected publication year {ref.year} at span {ref.span_year}")
+            except:
+                print("Something went wrong extracting year information. Returning with no success.")
+                return -1
+
+        elif self.reference_style['bibref'] == "iso690":
+            try:
+                year_positions = [r for r in re.finditer(year_matcher, ref.rawtext)]
+                ref.year = year_positions[-1].group()
+                ref.span_year = (year_positions[-1].start(), year_positions[-1].end())
+                #print(f"Detected publication year {ref.year} at span {ref.span_year}")
+            except:
+                e = sys.exc_info()[0]
+                print(e)
+                print("Something went wrong extracting year information. Returning with no success.")
+                return -1
+        else:
+            print("No reference style info exists. Cannot realiably detect publication year")
 
     
