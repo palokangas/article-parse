@@ -14,6 +14,7 @@ class Extractor(object):
         self.references = []
         self.references_layout = None
         self.reference_style = None
+        self.is_using_semicolons = None
 
     def __str__(self):
         if self.pdf:
@@ -44,6 +45,22 @@ class Extractor(object):
                 self.author_year_parse()
             return self.references
 
+    def _is_using_semicolons(self):
+        if self.is_using_semicolons is None:
+            number_of_semicolons = 0
+            for ref in self.references:
+                found_semicolons = re.findall(";", ref.rawtext)
+                number_of_semicolons += len(found_semicolons)
+            print(f"Number of semicolons: {number_of_semicolons} in {len(self.references)} references.")
+            if number_of_semicolons > len(self.references) / 4:
+                self.is_using_semicolons = True
+                return True
+            else:
+                self.is_using_semicolons = False
+                return False
+        else:
+            return self.is_using_semicolons
+        
     def read(self):
         """Read pdf from given file location into list of page strings"""
 
@@ -250,7 +267,7 @@ class Extractor(object):
             years = [r.end() for r in re.finditer(r"(?:19|20)\d\d", reference.rawtext)] 
             for match in years: 
                 if match < len(reference) - 1:
-                    if reference[match] == ")":
+                    if reference.rawtext[match] == ")":
                         parenthesized += 1
 
         if parenthesized / len(self.references) > 0.5:
@@ -498,7 +515,95 @@ class Extractor(object):
             else:
                 last_unclear = False
 
-    def create_authors(self):
-        pass
+    # TODO: Distinguish authors of an edited book = ending with (eds.), "(ed.)" etc.
+    def create_authors(self, ref, overwrite=True):
+        """
+        Creates a list of Author objects from raw reference text.
+        To prevent overwriting existing information, set overwrite to False        
+        """
+        
+        if len(ref.authors) > 0 and overwrite == False:
+            print("Detected authors exist for this reference and overwrite set to False. Not doing anything.")
+            return
+
+        if self.reference_style['bibref'] == "apa":
+            if self.reference_style['parenthesis'] == True:
+                year_matcher = re.compile(r"\((?:19|20)\d\d")
+            else:
+                year_matcher = re.compile(r"(?:19|20)\d\d")
+
+            try:
+                year_start = re.search(year_matcher, ref.rawtext).start()
+            except:
+                print("Cannot find year in reference. Returning with no success.")
+                return
+
+            author_splice = ref.rawtext[:year_start]
+            author_matcher = re.compile(r"[A-Z].+?,(?:\s*[A-ZÄÖÅ-].*?\.*)+\s*[;,.&]")
+            detected_authors = re.finditer(author_matcher, author_splice)
+            number_of_authors = 0
+
+            # If matching people names are found, add them as authors
+            for single_author in detected_authors:
+                number_of_authors += 1
+                author_string = single_author.group()
+                print(f"Parsing author {author_string}")
+                comma = author_string.find(",")
+                firstname = author_string[comma+1:].strip()
+                lastname = author_string[:comma].strip()
+                if firstname[-1] in ["&", ",", "("]: firstname = firstname[:-1]
+                if lastname[-1] in ["&", ",", "("]: lastname = lastname[:-1]
+                new_author = author.Author(firstname=firstname, lastname=lastname)
+                ref.authors.append(new_author)
+                print(new_author)
+                author_splice = author_splice[single_author.end():]
+                print(f"Remaining string to parse into authors: {author_splice}")
+
+            # If no people names are found, assume the author is an institution, anonymous report, software etc.
+            if number_of_authors == 0:
+                new_author = author.Author(non_person_author=author_splice.strip())
+                ref.authors.append(new_author)
+                print(f"Found non-person-author: {new_author}")
+
+        elif self.reference_style['bibref'] == "iso690":
+            author_splice = ref.rawtext.strip()
+            author_matcher = re.compile(r"^[A-Z].{0,25}?,(?:\s*[A-ZÄÖÅ-]?\.*)+\s*[;,.&]")
+            number_of_authors = 0
+            more_to_parse = True
+
+            # Search for formatted author names one by one
+            while more_to_parse:
+                author_match = re.search(author_matcher, author_splice)
+                if author_match is None:
+                    more_to_parse = False
+                else:
+                    number_of_authors += 1
+                    author_string = author_match.group()
+                    print(f"Parsing author {author_string}")
+                    comma = author_string.find(",")
+                    firstname = author_string[comma+1:].strip()
+                    lastname = author_string[:comma].strip()
+                    if firstname[-1] in ["&", ",", "(", ";"]: firstname = firstname[:-1]
+                    if lastname[-1] in ["&", ",", "(", ";"]: lastname = lastname[:-1]
+                    new_author = author.Author(firstname=firstname, lastname=lastname)
+                    ref.authors.append(new_author)
+                    print(new_author)
+                    author_splice = author_splice[author_match.end():].strip()
+                    print(f"Remaining string to parse into authors: {author_splice}")
+
+            # If no people names are found, assume the author is an institution, anonymous report, software etc.
+            if number_of_authors == 0:
+                # Assume the name ends with period and whitespace character. This might yield limited results
+                # If name is of type "BIG INSTITUTION. Sub-department." etc. but we will still get BIG INSTITUTION.
+                name_end = re.search(r"\.\s", author_splice)
+                author_splice = author_splice[:name_end.start()].strip()
+                if author_splice[-1] in ["&", ",", "(", ";"]: author_splice = author_splice[:-1]               
+                new_author = author.Author(non_person_author=author_splice.strip())
+                ref.authors.append(new_author)
+                print(f"Found non-person-author: {new_author}")
+
+        else:
+            print("No reference style available. Trying blindfolded with possibly broken success")
+            
 
     

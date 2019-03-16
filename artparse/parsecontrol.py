@@ -1,5 +1,5 @@
 import os.path
-from parser import Extractor
+from artparser import Extractor
 
 # TODO: Create datamodel
 
@@ -36,6 +36,11 @@ def extract(filename):
     else:
         article.author_year_parse()
 
+    article.detect_reference_style()
+
+    for ref in article.references:
+        article.create_authors(ref)
+
     print(f"Number of detected references: {len(article.references)}")
     for ref in article.references:
-        print(f"- {type(ref)}")
+        print(f"- {ref}")
