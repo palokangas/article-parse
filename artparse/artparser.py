@@ -528,18 +528,20 @@ class Extractor(object):
 
         if self.reference_style['bibref'] == "apa":
             if self.reference_style['parenthesis'] == True:
-                year_matcher = re.compile(r"\((?:19|20)\d\d")
+                year_matcher = re.compile(r"\((?:19|20)\d\d[abcdef]{0,1}\)")
             else:
-                year_matcher = re.compile(r"(?:19|20)\d\d")
+                year_matcher = re.compile(r"(?:19|20)\d\d[abcdef]{0,1}")
 
             try:
-                year_start = re.search(year_matcher, ref.rawtext).start()
+                year_position = re.search(year_matcher, ref.rawtext)
             except:
                 print("Cannot find year in reference. Returning with no success.")
                 return
-
-            author_splice = ref.rawtext[:year_start]
-            author_matcher = re.compile(r"[A-Z].+?,(?:\s*[A-ZÄÖÅ-].*?\.*)+\s*[;,.&]")
+            
+            print(f"Updating authors span: {ref.span_authors}")
+            ref.span_authors = (0, year_position.end())
+            author_splice = ref.rawtext[:year_position.start()]
+            author_matcher = re.compile(r"[A-ZÅÖÄØŒÆØ].+?,(?:\s*[A-ZÅÖÄØŒÆØ-].*?\.*)+\s*[;,.&]")
             detected_authors = re.finditer(author_matcher, author_splice)
             number_of_authors = 0
 
@@ -567,10 +569,10 @@ class Extractor(object):
 
         elif self.reference_style['bibref'] == "iso690":
             author_splice = ref.rawtext.strip()
-            author_matcher = re.compile(r"^[A-Z].{0,25}?,(?:\s*[A-ZÄÖÅ-]?\.*)+\s*[;,.&]")
+            author_matcher = re.compile(r"^[A-ZÅÖÄØŒÆØ].{0,25}?,(?:\s*[A-ZÅÖÄØŒÆØ-]?\.*)+\s*[;,.&]")
             number_of_authors = 0
             more_to_parse = True
-
+            print(f"--------\nStarting to parse this: {author_splice}")
             # Search for formatted author names one by one
             while more_to_parse:
                 author_match = re.search(author_matcher, author_splice)
@@ -579,7 +581,7 @@ class Extractor(object):
                 else:
                     number_of_authors += 1
                     author_string = author_match.group()
-                    print(f"Parsing author {author_string}")
+                    #print(f"Parsing author {author_string}")
                     comma = author_string.find(",")
                     firstname = author_string[comma+1:].strip()
                     lastname = author_string[:comma].strip()
@@ -587,9 +589,11 @@ class Extractor(object):
                     if lastname[-1] in ["&", ",", "(", ";"]: lastname = lastname[:-1]
                     new_author = author.Author(firstname=firstname, lastname=lastname)
                     ref.authors.append(new_author)
-                    print(new_author)
+                    print(f"Adding: {new_author}")
+                    ref.span_authors = (0, re.search(author_string, ref.rawtext).end())
+                    print(f"Updating authors span: {ref.span_authors}")
                     author_splice = author_splice[author_match.end():].strip()
-                    print(f"Remaining string to parse into authors: {author_splice}")
+                    #print(f"Remaining string to parse into authors: {author_splice}")
 
             # If no people names are found, assume the author is an institution, anonymous report, software etc.
             if number_of_authors == 0:
@@ -600,7 +604,10 @@ class Extractor(object):
                 if author_splice[-1] in ["&", ",", "(", ";"]: author_splice = author_splice[:-1]               
                 new_author = author.Author(non_person_author=author_splice.strip())
                 ref.authors.append(new_author)
-                print(f"Found non-person-author: {new_author}")
+                print(f"Adding non-person-author: {new_author}")
+                ref.span_authors = (0, name_end.end())
+                print(f"Updating authors span: {ref.span_authors}")
+ 
 
         else:
             print("No reference style available. Trying blindfolded with possibly broken success")
