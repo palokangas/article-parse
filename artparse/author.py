@@ -29,3 +29,16 @@ class Author(object):
 
     def get_author_fullname(self):
         return self
+
+    # TODO: Make this more fuzzy, ie. strip umlauts, check for full firstnames vs. initials etc.
+    def is_same(self, comparison):
+        they_match = False
+        if self.is_person_author and comparison.is_person_author:
+            if self.lastname == comparison.lastname and self.firstname == comparison.firstname:
+                they_match = True
+        elif self.is_person_author == False and comparison.is_person_author == False:
+            if self.non_person_author == comparison.non_person_author:
+                they_match = True
+        else:
+            they_match = False       
+        return they_match
