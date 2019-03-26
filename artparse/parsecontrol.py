@@ -29,6 +29,7 @@ def extract(filename):
     article.remove_headers_footers()
     article.detect_columns()
     article.two_columns_to_one()
+    article.remove_document_margins()
     article.detect_reference_start()
     article.detect_references_layout()
     if article.references_layout == "indentation":
@@ -39,10 +40,9 @@ def extract(filename):
     article.detect_reference_style()
 
     for ref in article.references:
-        article.extract_authors(ref)
         article.extract_year(ref)
+        article.extract_authors(ref)
 
     print(f"Number of detected references: {len(article.references)}")
     for ref in article.references:
         print(f"- {ref}")
-        print(f"--> publication year {ref.year} at span {ref.span_year}")

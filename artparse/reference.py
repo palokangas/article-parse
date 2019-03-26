@@ -10,11 +10,14 @@ class Reference(object):
         self.authors = []
         self.pdffile = ""
         self.year = None
-        # Store references span tuples especially for implementing interactive fixing of complicated references
-        self.span_authors = ()
-        self.span_title = ()
-        self.span_year = ()
-        self.span_journal = ()
+        self.span_authors_start = 0
+        self.span_authors_end = None
+        self.span_title_start = None
+        self.span_title_end = None
+        self.span_year_start = None
+        self.span_year_end = None
+        self.span_journal_start = None
+        self.span_journal_end = None
 
     def __len__(self):
         return len(self.rawtext)

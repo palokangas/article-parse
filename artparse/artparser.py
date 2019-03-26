@@ -1,24 +1,27 @@
+# TODO: Author parsing fails if author format changes in single reference
+# eg. lastname-firstname --> firstname-lastname: "Lastname1, E., F. Lastname2"
+
 import sys
 import pdftotext
 from collections import defaultdict
 from difflib import SequenceMatcher
-#from . import reference
-#from . import author
-import reference
-import author
-import re
+from . import reference
+from . import author
+#import reference
+#import author
+import regex as re
 
 class Extractor(object):
-    def __init__(self, pdffile):
+    def __init__(self, pdffile=None):
         self.pdffile = pdffile
         self.pdf = None
         self.header_footer_info = None
         self.column_info = None
+        self.margin_info = None
         self.references_start_index = None
         self.references = []
         self.references_layout = None
-        self.reference_style = None
-        self.is_using_semicolons = None
+        self.reference_style = {"semicolons": None, "parenthesis": None, "bibref": None, "comma_inside_name": None}
 
     def __str__(self):
         if self.pdf:
@@ -39,6 +42,7 @@ class Extractor(object):
             self.read()
             self.detect_headers_footers()
             self.remove_headers_footers()
+            self.remove_document_margins()
             self.detect_columns()
             self.two_columns_to_one()
             self.detect_reference_start()
@@ -49,21 +53,17 @@ class Extractor(object):
                 self.author_year_parse()
             return self.references
 
-    def _is_using_semicolons(self):
-        if self.is_using_semicolons is None:
-            number_of_semicolons = 0
-            for ref in self.references:
-                found_semicolons = re.findall(";", ref.rawtext)
-                number_of_semicolons += len(found_semicolons)
-            print(f"Number of semicolons: {number_of_semicolons} in {len(self.references)} references.")
-            if number_of_semicolons > len(self.references) / 4:
-                self.is_using_semicolons = True
-                return True
-            else:
-                self.is_using_semicolons = False
-                return False
+    def detect_semicolons(self):
+        number_of_semicolons = 0
+        for ref in self.references:
+            found_semicolons = re.findall(";", ref.rawtext)
+            number_of_semicolons += len(found_semicolons)
+        if number_of_semicolons > len(self.references) / 4:
+            self.reference_style["semicolons"] = True
+            return True
         else:
-            return self.is_using_semicolons
+            self.reference_style["semicolons"] = False
+            return False
         
     def read(self):
         """Read pdf from given file location into list of page strings"""
@@ -75,64 +75,131 @@ class Extractor(object):
             except FileNotFoundError:
                 print("Error: File not found")
 
-    def detect_margins(self, page):
-        
-        left_margin = 0
-        right_margin = -1
-        left_found = False
-        right_found = False
-        longest_line = max([len(line) for line in page.splitlines()])
+    def remove_document_margins(self):
+        """ Remove margins from the whole document. Only allow fully succesful results."""
+        try:
+            newpdf = []
+            for page in self.pdf:
+                newpdf.append(self.remove_page_margins(page))
+            self.pdf = newpdf
+        except:
+            e = sys.exc_info()[0]
+            print("Something went wrong removing margins from whole document")
+            print(e) 
 
-        while left_found == False:
-            nonspaces = 0
-            for row in page.splitlines():
-                if len(row) > left_margin and row[left_margin].isspace():
-                    pass
-                else:
-                    nonspaces +=1
-            #print(f"Found {nonspaces} nonspaces at margin {left_found}")
-            if nonspaces > 2:
-                left_found = True
-                print(f"Left margin found at {left_margin}")
-            else:
-                left_margin += 1
+    def remove_page_margins(self, page):
+        """ Removes margins from document"""
+        try:
+            self.detect_margins(page, allow_junk=2)
+            left_start, right_end = (self.margin_info)
+            stripped_page = "\n".join(row[left_start:right_end+1] for row in page.splitlines())
+            #print(f"----- MARGIN INFO: {self.margin_info} STRIPPED PAGE:")
+            #print(stripped_page)
+            return stripped_page
+        except TypeError as e:
+            print(e)
+        except:
+            e = sys.exc_info()[0]
+            print("Something went wrong removing margins from page. Page unmodified")
+            print(e)
+            return page
 
-        while right_found == False:
-            nonspaces = 0
-            for row in page.splitlines():
-                if row[right_margin].isspace():
-                    pass
+    def detect_margins(self, page, allow_junk=2):
+        """
+        Detects margins on a page.
+        Allowed levels of junk in the margin can vary:
+        0: margin needs to be all whitespace
+        1: margin can contain isolated numbers and punctuation (to match page numbers etc.)
+        2: left margin can contain isolated text (to match small layout elements, such as names or keywords)
+           and don't strip any text from right margin
+        """
+
+        rows = page.splitlines()
+        column_length = len(rows)
+        longest_row = max([len(row) for row in rows])
+        start_of_text = 0
+        end_of_text = longest_row -1
+
+        page_as_columns = [[] for _ in range(0, longest_row)]
+        for row in rows:
+            if len(row) < longest_row:
+                row = row + " " * (longest_row - len(row)) 
+            for index, char in enumerate(row):
+                page_as_columns[index].append(char)
+
+        columns_info = []
+        for column in page_as_columns:
+            column_data = {"spaces": 0, "numbers": 0, "punctuation": 0, "text": 0, "other": 0}
+            for char in column:
+                if char.isspace():
+                    column_data['spaces'] += 1
+                elif char.isnumeric():
+                    column_data['numbers'] += 1
+                elif char in [",", ";", "(", ")", ".", "{", "}", "[", "]"]:
+                    column_data['punctuation'] += 1
+                elif char.isalpha():
+                    column_data['text'] += 1
                 else:
-                    nonspaces +=1
-            #print(f"Found {nonspaces} nonspaces at margin {right_margin}")
-            if nonspaces > 2:
-                right_found = True
-                print(f"Right margin found at {right_margin}")
-            else:
-                right_margin -= 1
-        
-        return (left_margin, longest_line + right_margin)
+                    column_data['other'] += 1   
+            columns_info.append(column_data)
+
+        # left margin detection
+        for index, info in enumerate(columns_info):
+            if allow_junk == 0:
+                if info['spaces'] == column_length:
+                    start_of_text += 1
+                else: break
+            if allow_junk == 1:
+                if (info['spaces'] + info['numbers'] + info['punctuation']) == column_length:
+                    if info['numbers'] < 6:
+                        start_of_text += 1
+                    else: break
+                else: break
+            if allow_junk == 2:
+                if info['text'] < 6 and info['numbers'] < 6:
+                    start_of_text += 1
+                else: break
+
+        # right margin detection: since right can be unaligned, strip very carefully and no text at all
+        for index, info in reversed(list(enumerate(columns_info))):
+            if allow_junk == 0:
+                if info['spaces'] == column_length:
+                    end_of_text -= 1
+                else: break
+            if allow_junk == 1 or allow_junk == 2:
+                if (info['spaces'] + info['numbers'] + info['punctuation']) == column_length:
+                    if info['numbers'] < 2:
+                        end_of_text -= 1
+                    else: break
+                else: break
+ 
+        self.margin_info = (start_of_text, end_of_text)
 
     # TODO: Make work with matching but differenent even and odd page headers and footers
-    def detect_headers_footers(self):
+    def detect_headers_footers(self, page_parity="even"):
         """
         Detects the number of header and footer lines from pdf_object
+        set page_parity for even or odd pages (headers and footers often vary between even and odd pages)
         """
         header_lines = 0
         footer_lines = 0
         line_to_investigate = 0
+        start_page = 0 if page_parity == "even" else 1
 
-        if len(self.pdf) < 2:
-            print("There should be at least 2 pages to identify header and footer by similarity.")
+        if len(self.pdf) < 5:
+            print("There should be at least 4 pages to identify header and footer by similarity.")
             self.header_footer_info = (0 , 0)
 
         while line_to_investigate != "stop":
-
-            lines_to_compare = []    
-            for page in self.pdf:
+            page_number = start_page
+            lines_to_compare = []
+            while page_number < len(self.pdf):
+                print(f"Investingating page number {page_number} for headers and footers")
+                page = self.pdf[page_number]
                 # get the line in question, remove whitespace, add to list
                 lines_to_compare.append(re.sub(r"\s+", " ", page.splitlines()[line_to_investigate]))
-            
+                page_number += 2
+
             similarity_scores = []
             line1 = lines_to_compare[0]
             for line2 in lines_to_compare[1:]:
@@ -165,41 +232,47 @@ class Extractor(object):
         second_columns_start_indexes = []
 
         for page in self.pdf:
-            left_margin, right_margin = self.detect_margins(page)
-            longest_line = 0
-            for row in page.splitlines():
-                if len(row) > longest_line:
-                    longest_line = len(row)
-
+            longest_line = max([len(row) for row in page.splitlines()])
+            print(f"Longest line = {longest_line} characters")
             spaces = defaultdict(int)
             rows = 0
-            for row in page.splitlines():
-                if len(row) < longest_line:
-                    row = row + (" " * (longest_line-len(row)))
-                rows += 1
-                for space_location in re.finditer(r" ", row):
-                    position = space_location.start(0)
+            try:
+                for row in page.splitlines():
+                    if len(row) < longest_line:
+                        row = row + (" " * (longest_line-len(row)))
+                        print(f"New row: {row}")
+                    rows += 1
+                    for space_location in re.finditer(r" ", row):
+                        position = space_location.start(0)
+                        midpoint = len(row) / 2 if len(row) > 40 else 0
+                        if abs(position - midpoint) < 20:
+                        #if len(row) > 40 and position > 19 and position < len(row) - 19:
+                            spaces[position] += 1
+            except:
+                e = sys.exc_info()[0]
+                print("Something went wrong trying to detect space locations for page")
+                print(e)
 
-                    if len(row) > 40 and position > 19 and position < len(row) - 19:
-                    #if position >= left_margin or position <= right_margin:
-                        spaces[position] += 1
-
-            print(f"{max(spaces.values())} / {rows} = {max(spaces.values()) / rows}")
-            if (max(spaces.values()) / rows) < 0.61:
-                second_columns_start_indexes.append(0)
-                continue
-
-            highest_space_nr = 0
             index_of_second_column = 0
-            #for position, value in spaces.items():
-            for position, value in sorted(spaces.items()):
-                if value >= highest_space_nr:
-                    highest_space_nr = value
-                    index_of_second_column = position
-                    print(f"Changing column start value to {position}")
-            index_of_second_column += 1
+            try:
+                print(f"Ratio of highest whitespace to rows: {max(spaces.values())} / {rows} = {max(spaces.values()) / rows}")
+                if (max(spaces.values()) / rows) < 0.61:
+                    #second_columns_start_indexes.append(0)
+                    continue
 
-            second_columns_start_indexes.append(index_of_second_column)
+                highest_space_nr = 0
+                for position, value in sorted(spaces.items()):
+                    if value >= highest_space_nr:
+                        highest_space_nr = value
+                        index_of_second_column = position
+                        #print(f"Changing column start value to {position}")
+                index_of_second_column += 1
+
+            except ValueError as e:
+                print("Getting ValueError, which probably means there are no columns on this page")
+                print(e)
+            finally:
+                second_columns_start_indexes.append(index_of_second_column)
 
         self.column_info = second_columns_start_indexes
 
@@ -241,9 +314,9 @@ class Extractor(object):
             self.references_start_index = most_probable_start_point
 
     def detect_reference_style(self):
-
         """
-        Detects reference style: currently author-year-title-publication vs. author-title-publication-year
+        Detects reference style:
+        author-year-title-publication vs. author-title-publication-year
         The detection is based simply on location of the year in the reference: end vs. start
         This also detects whether the publication year is parenthesized.
         This also detects whether style "Author F, Author DI" or "Author, F., Author D. I." is used.
@@ -253,8 +326,8 @@ class Extractor(object):
             return
         
         self.reference_style = {}
-
         # Try to detect ISO 690 type references style based on location of year number
+        print("Try to detect ISO 690")
         year_positions = []
         for reference in self.references:
             years = [r.end() for r in re.finditer(r"(?:19|20)\d\d", reference.rawtext)] 
@@ -265,6 +338,10 @@ class Extractor(object):
             self.reference_style['bibref'] = 'iso690'
         else:
             self.reference_style['bibref'] = 'apa'
+
+        
+        # Detect use of semicolons
+        self.reference_style['semicolons'] = self.detect_semicolons()
 
         # Detect if year numbers are parenthesized
         parenthesized = 0
@@ -382,12 +459,10 @@ class Extractor(object):
         Lays out two columns into one.
         """
 
-        with open("temptext3.txt", "w") as outfile:             ## REMOVE THIS: Only for debugging
+        with open("temptext-new-layout.txt", "w") as outfile:             ## REMOVE THIS: Only for debugging
             outfile.write("")
 
         for page_number, page in enumerate(self.pdf):
-            with open("temptext3.txt", "a") as outfile:
-                outfile.write(page + "\n" + "--- PAGE BREAK (only in this file) ---" + "\n")
             
             if self.column_info[page_number] != 0:
                 page_as_lines = page.splitlines()
@@ -397,16 +472,22 @@ class Extractor(object):
                 for row in page_as_lines:
                     single_column_lines.append(row[:self.column_info[page_number]])
                 
+                #singlestring = self.remove_page_margins("\n".join(single_column_lines))
                 singlestring = self._trim_left_margin("\n".join(single_column_lines))
                 single_column_lines = []
 
                 for row in page_as_lines:
                     single_column_lines.append(row[self.column_info[page_number]:])
 
+                #singlestring += "\n" + self.remove_page_margins("\n".join(single_column_lines))
                 singlestring += "\n" + self._trim_left_margin("\n".join(single_column_lines))
                 self.pdf[page_number] = singlestring
             else:
+                #self.pdf[page_number] = self.remove_page_margins(page)
                 self.pdf[page_number] = self._trim_left_margin(page)
+            
+            with open("temptext-new-layout.txt", "a") as outfile:
+                outfile.write(page + "\n" + "--- PAGE BREAK (only in this file) ---" + "\n")
 
     def _trim_numbering(self, reference):
         """
@@ -428,7 +509,10 @@ class Extractor(object):
             return
 
         reference_string = self.get_fulltext()[self.references_start_index:]
-
+        print("----------- FULL REFERENCE SECTION STARTS -----------")
+        print(reference_string)
+        print("----------- FULL REFERENCE SECTION ENDS -----------")
+        
         print(f"Starting indentation parse on ref section on index {self.references_start_index} that looks like this:")
         print(reference_string[:400])
 
@@ -454,8 +538,10 @@ class Extractor(object):
                 if unindented_lines > MAX_LINES:
                     break
         
+        print(f"Current: {current_reference}")
+        print(f"Value of beyond refernces = {self._is_beyond_references(current_reference)}")
         # If the self reached its end with the final reference, write the last reference
-        if self._is_beyond_references == False:
+        if self._is_beyond_references(current_reference) == False:
             current_reference = self._trim_numbering(current_reference)
             current_reference = re.sub(r"\s+", " ", current_reference)
             self.references.append(reference.Reference(current_reference))
@@ -484,8 +570,7 @@ class Extractor(object):
             return
 
         reference_string = self.get_fulltext()[self.references_start_index:]
-
-        reference_matcher = re.compile(r"\s*([A-ZÅÄÖØÆ].+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;abcdef])")
+        reference_matcher = re.compile(r"\s*(\p{Lu}.+[\s\(\.,;]((?:19|20)\d\d)[\s\)\.,;abcdef])")
         reference_starts = [r.start() for r in re.finditer(reference_matcher, reference_string)]
 
         slice_start = reference_starts[0] if len(reference_starts) > 0 else []
@@ -538,117 +623,119 @@ class Extractor(object):
         Creates a list of Author objects from raw reference text.
         Toggling just_count will not store anything, just return how many authors are matched
         """
-
         number_of_authors = 0
         year_position = -1
-        author_splice = ""
+        author_splice = ref.rawtext.lstrip()
+        #print("Author-splice in the beginning is:")
+        #print(author_splice)
         # Narrow down the searched string for apa-style references
         if self.reference_style['bibref'] == "apa":
-            if self.reference_style['parenthesis'] == True:
-                year_matcher = re.compile(r"\((?:19|20)\d\d[abcdef]{0,1}\)")
-            else:
-                year_matcher = re.compile(r"(?:19|20)\d\d[abcdef]{0,1}")
-
+            # if self.reference_style['parenthesis'] == True:
+            #     year_matcher = re.compile(r"\((?:19|20)\d\d[abcdef]{0,1}\)")
+            # else:
+            #     year_matcher = re.compile(r"(?:19|20)\d\d[abcdef]{0,1}")
             try:
-                year_position = re.search(year_matcher, ref.rawtext)
+                #year_position = re.search(year_matcher, ref.rawtext)
+                #print("We have APA-style reference, and now the splice is:")
+                #print(author_splice)
+                # Make sure there is whitespace in the end for regex purposes
+                author_splice = ref.rawtext[:ref.span_authors_end].lstrip() + " "
+            except AttributeError as e:
+                print("AttributeError getting year from reference")
+                print(e)
+            except IndexError as e:
+                print("IndexError splicing reference text.")
+                print(e)
             except:
-                print("Cannot find year in reference. Returning with no success.")
-                return
-            
-            #print(f"Updating authors span: {ref.span_authors}")
-            ref.span_authors = (0, year_position.end())
-            author_splice = ref.rawtext[:year_position.start()]
-            # author_matcher = re.compile(r"[A-ZÅÖÄØŒÆØ].+?,(?:\s*[A-ZÅÖÄØŒÆØ-].*?\.*)+\s*[;,.&]")
+                e = sys.exc_info()[0]
+                print(e)
+                print("Cannot find year in reference. Returning 0 authors found.")
+                return 0
 
-            # detected_authors = re.finditer(author_matcher, author_splice)
-
-            # # If matching people names are found, add them as authors
-            # for single_author in detected_authors:
-            #     number_of_authors += 1
-            #     author_string = single_author.group()
-            #     print(f"Parsing author {author_string}")
-            #     comma = author_string.find(",")
-            #     firstname = author_string[comma+1:].strip()
-            #     lastname = author_string[:comma].strip()
-            #     if firstname[-1] in ["&", ",", "("]: firstname = firstname[:-1]
-            #     if lastname[-1] in ["&", ",", "("]: lastname = lastname[:-1]
-                
-            #     if just_count == False:
-            #         new_author = author.Author(firstname=firstname, lastname=lastname)
-            #         ref.authors.append(new_author)
-            #         print(new_author)
-            #     author_splice = author_splice[single_author.end():]
-            #     print(f"Remaining string to parse into authors: {author_splice}")
-
-            # # If no people names are found, assume the author is an institution, anonymous report, software etc.
-            # if number_of_authors == 0:
-            #     if author_splice[-1] in [",", ".", ";", "(", ")"]:
-            #         author_splice = author_splice[:-1]
-                
-            #     if just_count == False:
-            #         new_author = author.Author(non_person_author=author_splice.strip())
-            #         ref.authors.append(new_author)
-            #         print(f"Found non-person-author: {new_author}")
+        print("\n-----------------Starting to extract authors from this text:")
+        print(author_splice)
 
         if self.reference_style['comma_inside_name'] == True:
             # Matches "Author, F.N." -style:
-            author_matcher = re.compile(r"^[A-ZÅÖÄØŒÆØ].{0,25}?,(?:\s*[A-ZÅÖÄØŒÆØ-]?\.*)+\s*[;,.&]")
+            #author_matcher = re.compile(r"^([A-ZÅÖÄØŒÆØ].{0,25}?,(?:\s*[A-ZÅÖÄØŒÆØ-]?\.*)+\s*[;,.&])")
+            author_matcher = re.compile(r"^(\p{Lu}.{0,25}?,(?:\s*[\p{Lu}-]?\.*)+\s*[;,.&])")
+         
         elif self.reference_style['comma_inside_name'] == False:
             # Matches "Author FN" -style
-            author_matcher = re.compile(r"^((?:[A-ZÖÄØŒÆ][\w-]+\s){1,3}[A-ZÖÄØŒÆ-]{1,3})[\s,.(]")
+            #author_matcher = re.compile(r"^((?:[A-ZÖÄØŒÆ][\w-]+\s){1,3}[A-ZÖÄØŒÆ-]{1,3})[\s,.(]")
+            author_matcher = re.compile(r"^((?:\p{Lu}[\w-]+\s){1,3}[\p{Lu}-]{1,3})[\s,.(]")
 
-        author_splice = ref.rawtext.strip()
         more_to_parse = True
-        print(f"--------\nStarting to parse this: {author_splice}")
-        # Search for formatted author names one by one
-        while more_to_parse:
-            author_match = re.search(author_matcher, author_splice)
-            if author_match is None:
-                more_to_parse = False
-            else:
-                number_of_authors += 1
-                author_string = author_match.group()
-                #print(f"Parsing author {author_string}")
-                if self.reference_style['comma_inside_name'] == True:
-                    comma = author_string.find(",")
-                    firstname = author_string[comma+1:].strip()
-                    lastname = author_string[:comma].strip()                    
+        print(f"--------\n---->Starting to parse this: {author_splice} <--------")
+        
+        try:
+            # Search for formatted author names one by one
+            while more_to_parse:
+                author_match = re.search(author_matcher, author_splice)
+                if author_match is None:
+                    more_to_parse = False
                 else:
-                    if author_string[-1] in ["&", ",", "(", ";"]:
-                        author_string = author_string[:-1]
-                    split_name = author_string.strip().split()
-                    lastname = " ".join(split_name[0:-1])
-                    firstname = ""
-                    firstname_part = split_name[-1]
-                    dash = firstname_part.find("-")
-                    if dash == -1:
-                        for letter in firstname_part:
-                            firstname = firstname + letter + "."
-                    elif dash > 0 and dash < len(firstname_part) - 2 and len(firstname_part) > 2:
-                        for index, letter in enumerate(firstname_part):
-                            if index not in [dash-1, dash, dash+1]:
-                                firstname = letter + "."
-                            else:
-                                firstname = firstname + letter
+                    number_of_authors += 1
+                    author_string = author_match.group()
+                    print(f"Parsing author {author_string}")
+                    if self.reference_style['comma_inside_name'] == True:
+                        comma = author_string.find(",")
+                        firstname = author_string[comma+1:].strip()
+                        lastname = author_string[:comma].strip()                    
                     else:
-                        print("Not prepared for this kind of firstname. Just store the full abbreviation")
-                        firstname = firstname_part
+                        while author_string[-1] in ["&", ",", "(", ";"]:
+                            author_string = author_string[:-1]
+                        split_name = author_string.strip().split()
+                        lastname = " ".join(split_name[0:-1])
+                        firstname = ""
+                        firstname_part = split_name[-1]
+                        dash = firstname_part.find("-")
+                        if dash == -1:
+                            for letter in firstname_part:
+                                firstname = firstname + letter + "."
+                        elif dash > 0 and dash < len(firstname_part) - 2 and len(firstname_part) > 2:
+                            for index, letter in enumerate(firstname_part):
+                                if index not in [dash-1, dash, dash+1]:
+                                    firstname = letter + "."
+                                else:
+                                    firstname = firstname + letter
+                        else:
+                            print("Not prepared for this kind of firstname. Just store the full abbreviation")
+                            firstname = firstname_part.strip()
 
+                    
+                    while len(firstname) > 0 and firstname[-1] in ["&", ",", "(", ";"]:
+                        firstname = firstname[:-1].strip()
+                    while len(lastname) > 0 and lastname[-1] in ["&", ",", "(", ";"]:
+                        lastname = lastname[:-1].strip()
+                    
+                    if just_count == False:
+                        new_author = author.Author(firstname=firstname, lastname=lastname)
+                        ref.authors.append(new_author)
+                        print(f"Adding: {new_author}")
+                        if self.reference_style['bibref'] == "iso690":
+                            ref.span_authors_end = re.search(author_string, ref.rawtext).end()
+                            ref.span_title_start = ref.span_authors_end +1
 
-                if firstname[-1] in ["&", ",", "(", ";"]: firstname = firstname[:-1]
-                if lastname[-1] in ["&", ",", "(", ";"]: lastname = lastname[:-1]
-                
-                if just_count == False:
-                    new_author = author.Author(firstname=firstname, lastname=lastname)
-                    ref.authors.append(new_author)
-                    print(f"Adding: {new_author}")
-                    if self.reference_style['bibref'] == "iso690":
-                        ref.span_authors = (0, re.search(author_string, ref.rawtext).end())
-                        ref.span_title = (ref.span_authors[1] +1, )
-                        #print(f"Updating authors span: {ref.span_authors}")
-                        #print(f"Updating title span. {ref.span_title}")
-                author_splice = author_splice[author_match.end():].strip()
-                #print(f"Remaining string to parse into authors: {author_splice}")
+                    author_splice = author_splice[author_match.end():].lstrip()
+                    try:
+                        if author_splice.split()[0] == "and":
+                            author_splice = author_splice[3:].lstrip()
+                        elif author_splice.split()[0] == "&":
+                            author_splice = author_splice[1:].lstrip()
+                    except IndexError:
+                        pass # nothing more to parse
+                    print(f"Remaining string to parse into authors: {author_splice}")
+        except IndexError as e:
+            print("IndexError when extracting authors from string")
+            print(e)
+        except AttributeError as e:
+            print("AttributeError when extracting authors from string")
+            print(e)
+        
+        except:
+            e = sys.exc_info()[0]
+            print(e) 
 
         # If no people names are found, assume the author is an institution, anonymous report, software etc.
         if number_of_authors == 0:
@@ -660,19 +747,19 @@ class Extractor(object):
                 first_comma = re.search(r"\.\s", author_splice)
                 name_end = first_comma.start()
                 title_start = first_comma.end()
-            
+
             author_splice = author_splice[:name_end].strip()
-            if author_splice[-1] in ["&", ",", "(", ";"]: author_splice = author_splice[:-1]               
+            while len(author_splice) > 0 and author_splice[-1] in ["&", ",", "(", ";"]:
+                author_splice = author_splice[:-1]               
             
             if just_count == False:
                 new_author = author.Author(non_person_author=author_splice.strip())
                 ref.authors.append(new_author)
                 print(f"Adding non-person-author: {new_author}")
                 if self.reference_style['bibref'] == "iso690":
-                    ref.span_authors = (0, name_end)
-                    ref.span_title = (title_start, )
-                    #print(f"Updating authors span: {ref.span_authors}")
-            
+                    ref.span_authors_end = name_end
+                    ref.span_title_start = title_start
+
         if just_count == True:
             return number_of_authors
            
@@ -684,24 +771,25 @@ class Extractor(object):
         if self.reference_style['bibref'] == "apa":
             try:
                 year_position = re.search(year_matcher, ref.rawtext)
-                ref.year = year_position.group()[:4]
-                ref.span_year = (year_position.start(), year_position.end())
-                ref.span_title = (ref.span_year[1] +1, )
-                #print(f"Detected publication year {ref.year} at span {ref.span_year}")
+                ref.year = int(year_position.group()[:4])
+                ref.span_year_start = year_position.start()
+                ref.span_year_end = year_position.end()
+                ref.span_authors_end = year_position.start()
+                ref.span_title_start = ref.span_year_end +1
             except:
-                print("Something went wrong extracting year information. Returning with no success.")
+                print("Something went wrong extracting apa-year information. Returning with no success.")
                 return -1
 
         elif self.reference_style['bibref'] == "iso690":
             try:
                 year_positions = [r for r in re.finditer(year_matcher, ref.rawtext)]
-                ref.year = year_positions[-1].group()[:4]
-                ref.span_year = (year_positions[-1].start(), year_positions[-1].end())
-                #print(f"Detected publication year {ref.year} at span {ref.span_year}")
+                ref.year = int(year_positions[-1].group()[:4])
+                ref.span_year_start = year_positions[-1].start()
+                ref.span_year_end = year_positions[-1].end()
             except:
                 e = sys.exc_info()[0]
                 print(e)
-                print("Something went wrong extracting year information. Returning with no success.")
+                print("Something went wrong extracting iso690-year information. Returning with no success.")
                 return -1
         else:
             print("No reference style info exists. Cannot realiably detect publication year")
@@ -711,15 +799,14 @@ class Extractor(object):
         Extract title - or the first period-terminated part of the title from reference
         Requires author and year extraction first to detect the position of title start
         """
-        if self.is_using_semicolons:
+        if self.reference_style['semicolons']:
             separator = ";"
         else:
             separator = "."
 
-        print(f"We have a span of title: {ref.span_title}")
-        if isinstance(ref.span_title[0], int):
+        if isinstance(ref.span_title_start, int):
             # remove any whitespace or extra punctuation from title start
-            start_of_title = ref.span_title[0]
+            start_of_title = ref.span_title_start
             start_unclear = True
             while start_unclear:
                 if ref.rawtext[start_of_title].isalpha() or ref.rawtext[start_of_title].isnumeric():
