@@ -1,8 +1,9 @@
-# TODO: Author parsing fails if author format changes in single reference
-# eg. lastname-firstname --> firstname-lastname: "Lastname1, E., F. Lastname2"
+# TODO: Author parsing produces sub-par results if author format changes in single reference
+# eg. from lastname-firstname --> firstname-lastname: such as "Lastname1, E., F. Lastname2, S. Lastname3"
 
 import sys
 import pdftotext
+from PyPDF2 import PdfFileReader
 from collections import defaultdict
 from difflib import SequenceMatcher
 from . import reference
@@ -34,6 +35,18 @@ class Extractor(object):
             return "\n\n".join(self.pdf) + "\n\n"
         else:
             return ""
+
+    def get_pdf_info(self):
+        try:
+            input = PdfFileReader(open(self.pdffile, "rb"))
+            input.getDocumentInfo()
+        except FileNotFoundError as e:
+            print("File not found")
+            print(e)
+
+    def get_references_plaintext(self, plaintext):
+        self.indentation_parse(plaintext)
+        return self.references
 
     def get_references(self):
         if len(self.references) > 0:
@@ -498,17 +511,20 @@ class Extractor(object):
         reference = re.sub(r"^\s", "", reference)
         return reference
 
-    def indentation_parse(self):
+    def indentation_parse(self, reference_string=None):
         """
         Parses the references string assuming references are separated by indendation
         Param1: reference section of self as string
         Returns a list of detected references as strings
         """
-        if self.references_start_index is None or self.references_start_index == 0:
+        if reference_string is not None:
+            print("Using a given reference string instead of parsed pdf text")
+        elif self.references_start_index is None or self.references_start_index == 0:
             print("There is no info on reference start index. Doing nothing.")
             return
-
-        reference_string = self.get_fulltext()[self.references_start_index:]
+        else:
+            reference_string = self.get_fulltext()[self.references_start_index:]
+       
         print("----------- FULL REFERENCE SECTION STARTS -----------")
         print(reference_string)
         print("----------- FULL REFERENCE SECTION ENDS -----------")
@@ -552,9 +568,9 @@ class Extractor(object):
         """Checks if parsing reached beyond references section. Returns boolean. """
         ending_indicators = [r"suggested citation",
                              r"would like to thank",
-                             r"this self is",
+                             r"this article is",
                              r"further reading",
-                             r"this self has been", 
+                             r"this article has been", 
                              r"by the authors",
                             ]
 
@@ -652,6 +668,15 @@ class Extractor(object):
                 print("Cannot find year in reference. Returning 0 authors found.")
                 return 0
 
+        # Adjust for "Dutch" style lastname: van Buuren, de Wiet etc.
+        author_string_list = []
+        for word in author_splice.split():
+            if word in ["de", "van", "von", "deb"]:
+                author_string_list.append(word.capitalize())
+            else:
+                author_string_list.append(word)
+        author_splice = " ".join(author_string_list)
+
         print("\n-----------------Starting to extract authors from this text:")
         print(author_splice)
 
@@ -683,7 +708,7 @@ class Extractor(object):
                         firstname = author_string[comma+1:].strip()
                         lastname = author_string[:comma].strip()                    
                     else:
-                        while author_string[-1] in ["&", ",", "(", ";"]:
+                        while author_string[-1] in ["&", ",", "(", ";", "."]:
                             author_string = author_string[:-1]
                         split_name = author_string.strip().split()
                         lastname = " ".join(split_name[0:-1])
@@ -706,6 +731,8 @@ class Extractor(object):
                     
                     while len(firstname) > 0 and firstname[-1] in ["&", ",", "(", ";"]:
                         firstname = firstname[:-1].strip()
+                    if len(firstname) > 1 and firstname[-2:] == "..":
+                        firstname = firstname[:-1]
                     while len(lastname) > 0 and lastname[-1] in ["&", ",", "(", ";"]:
                         lastname = lastname[:-1].strip()
                     
